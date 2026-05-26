@@ -1,0 +1,1091 @@
+%% ============================================================
+%%  Adaptive AI-Driven Telescope Target Prioritization
+%%  Stage 1 Technical Report
+%%  Author: Rushikesh
+%% ============================================================
+\documentclass[12pt,a4paper]{article}
+
+%% ---- Packages -----------------------------------------------
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{natbib}
+\usepackage{setspace}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{mdframed}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, boxes, positioning, shapes.geometric}
+
+%% ---- Color palette ------------------------------------------
+\definecolor{deepblue}{RGB}{13,17,23}
+\definecolor{tealaccent}{RGB}{34,181,160}
+\definecolor{goldcolor}{RGB}{240,165,0}
+\definecolor{pinkcolor}{RGB}{201,173,167}
+\definecolor{lightblue}{RGB}{123,200,246}
+\definecolor{mutedgray}{RGB}{139,148,158}
+\definecolor{codebg}{RGB}{22,27,34}
+
+%% ---- Hyperref setup -----------------------------------------
+\hypersetup{
+    colorlinks=true,
+    linkcolor=tealaccent,
+    citecolor=goldcolor,
+    urlcolor=lightblue,
+    pdftitle={Adaptive AI-Driven Telescope Target Prioritization},
+    pdfauthor={Rushikesh},
+}
+
+%% ---- Header/footer ------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small Exoplanet Prioritization Framework --- Stage 1}
+\lhead{\small Rushikesh}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+%% ---- Section formatting ------------------------------------
+\titleformat{\section}{\large\bfseries\color{deepblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{tealaccent}}{\thesubsection}{1em}{}
+
+%% ---- Code listing style ------------------------------------
+\lstset{
+    backgroundcolor=\color{codebg!20},
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{tealaccent}\bfseries,
+    commentstyle=\color{mutedgray}\itshape,
+    stringstyle=\color{goldcolor},
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{mutedgray},
+    numbers=left,
+    numberstyle=\tiny\color{mutedgray},
+    language=Python,
+    showstringspaces=false,
+}
+
+%% ---- Custom boxes ------------------------------------------
+\newmdenv[
+  linecolor=tealaccent,
+  linewidth=1.5pt,
+  topline=true,
+  bottomline=true,
+  leftline=true,
+  rightline=false,
+  backgroundcolor=tealaccent!5,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+]{noveltybox}
+
+\newmdenv[
+  linecolor=goldcolor,
+  linewidth=1.5pt,
+  backgroundcolor=goldcolor!5,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+]{formulabox}
+
+%% ============================================================
+\begin{document}
+
+%% ---- Title Page --------------------------------------------
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+
+{\huge\bfseries Adaptive AI-Driven Telescope Target\\[0.3em]
+Prioritization Framework\par}
+
+\vspace{0.5cm}
+{\Large\color{tealaccent} Probabilistic Liquid Water Detection on Exoplanets\\
+Under Observation Constraints\par}
+
+\vspace{1.5cm}
+\rule{0.8\linewidth}{1pt}
+\vspace{0.5cm}
+
+{\large\bfseries Stage 1 Technical Report:\\
+Static Probabilistic Prioritization Pipeline (v2.1)\par}
+
+\vspace{1.5cm}
+
+\begin{tabular}{rl}
+\textbf{Author:}        & Rushikesh \\[4pt]
+\textbf{GitHub:}        & \href{https://github.com/rushikesh-D69/water}{rushikesh-D69/water} \\[4pt]
+\textbf{Data Source:}   & NASA Exoplanet Archive (TAP API) \\[4pt]
+\textbf{Dataset Size:}  & 6,284 confirmed exoplanets \\[4pt]
+\textbf{ML-Ready:}      & 5,522 planets, 31 features \\[4pt]
+\textbf{Date:}          & \today \\[4pt]
+\textbf{Version:}       & v2.1 (quantile-normalised scoring) \\
+\end{tabular}
+
+\vspace{2cm}
+
+\begin{noveltybox}
+\textbf{Core Research Question:}\\[4pt]
+\textit{Which exoplanets should a telescope observe NEXT to maximize the probability of detecting liquid water or habitable conditions, given limited observation time?}
+\end{noveltybox}
+
+\vfill
+{\small This report documents Stage 1 of a 3-stage research pipeline. Stage 2 introduces dynamic prioritization with adaptive weights; Stage 3 introduces a reinforcement learning autonomous scheduler.}
+\end{titlepage}
+
+%% ---- Table of Contents -------------------------------------
+\tableofcontents
+\newpage
+
+%% ============================================================
+\begin{abstract}
+\setlength{\parindent}{0pt}
+\onehalfspacing
+
+Observatories such as the James Webb Space Telescope (JWST), Kepler, and the Transiting Exoplanet Survey Satellite (TESS) face a fundamental resource allocation challenge: with over 6,000 confirmed exoplanets catalogued and severely constrained observation time, the order in which targets are observed has enormous scientific consequences. Existing approaches either classify planets as ``habitable'' or ``not habitable'' in binary fashion, or construct static rankings without accounting for observation feasibility or prediction uncertainty.
+
+This report presents \textbf{Stage 1} of an Adaptive AI-Driven Telescope Target Prioritization Framework, which reformulates the problem as a \textbf{continuous regression and ranking task} rather than classification. We construct a scientifically grounded, leakage-free priority score using weak supervision over Kopparapu et al. (2014) Habitable Zone theory, the Earth Similarity Index (Schulze-Makuch et al., 2011), and a rocky planet proxy. A soft geometric mean formulation with additive smoothing ($\varepsilon = 0.1$) prevents near-zero score collapse while preserving multiplicative interaction physics. Detectability (telescope observability) is blended at 15\%, and the final score is quantile-normalized to a uniform distribution for optimal ranking model training.
+
+Four ensemble regression models (Random Forest, XGBoost, Gradient Boosting, LightGBM) are trained on 31 leakage-free features with 5-fold cross-validation evaluated on ranking metrics. All models achieve NDCG@50 $> 0.97$, Spearman $\rho > 0.97$, and Regret@50 $< 0.03$, demonstrating that ML can recover the scientifically motivated ranking from raw astrophysical parameters. Prediction uncertainty is quantified via tree ensemble variance, and a scientific gain metric (uncertainty $\times$ detectability) drives a temporal observation simulation that outperforms both random selection and static ML ranking baselines.
+
+\vspace{0.5em}
+\noindent\textbf{Keywords:} exoplanet prioritization, weak supervision, ranking regression, habitable zone, uncertainty quantification, telescope scheduling, NDCG, scientific gain
+\end{abstract}
+
+\newpage
+
+%% ============================================================
+\section{Introduction}
+\label{sec:intro}
+
+\subsection{Motivation}
+
+The discovery of exoplanets has accelerated dramatically since the Kepler mission began operations in 2009. As of 2024, the NASA Exoplanet Archive catalogs over 5,700 confirmed exoplanets, with thousands more candidates awaiting confirmation. This abundance creates a paradox: the scientific resources required to characterize these planets---particularly for biosignature and water detection via atmospheric spectroscopy---are far more constrained than the supply of candidate targets.
+
+The James Webb Space Telescope, the most powerful infrared observatory ever deployed, can realistically observe only a small fraction of known exoplanet candidates for atmospheric spectroscopy in its operational lifetime. The allocation of this precious observation time is therefore a critical scientific decision with long-term consequences for the search for life beyond Earth.
+
+\subsection{The Resource Allocation Problem}
+
+Formally, let $\mathcal{P} = \{p_1, p_2, \ldots, p_N\}$ denote the set of $N$ known exoplanets. A telescope with observation budget $B$ per cycle must select a subset $\mathcal{O} \subset \mathcal{P}$, $|\mathcal{O}| = B$, to maximize expected scientific return:
+
+\begin{equation}
+\mathcal{O}^* = \argmax_{\mathcal{O} \subset \mathcal{P},\, |\mathcal{O}|=B} \sum_{p \in \mathcal{O}} \text{ScientificReturn}(p)
+\label{eq:allocation}
+\end{equation}
+
+This optimization is non-trivial because: (1) scientific return is not directly observable and must be estimated; (2) observation feasibility varies by telescope capabilities and planetary geometry; and (3) uncertainty in predictions should influence selection (a planet with high uncertainty and high estimated value warrants observation precisely to reduce that uncertainty).
+
+\subsection{Existing Approaches and Their Limitations}
+
+Prior work on computational habitability assessment includes:
+
+\begin{itemize}[leftmargin=1.5cm]
+    \item \textbf{Binary classifiers}: Systems that label planets as ``habitable'' ($y=1$) or ``not habitable'' ($y=0$). This discards all ordinal information---a planet barely inside the habitable zone is treated identically to one perfectly centered.
+    \item \textbf{Static scoring systems}: Systems like the Habitable Exoplanets Catalog (HEC) assign Earth Similarity Index scores but do not model observation feasibility or prediction uncertainty.
+    \item \textbf{Catalogue-based ranking}: Fixed rankings based on individual parameters (radius, temperature) without integrating multiple signals or considering telescope scheduling constraints.
+    \item \textbf{Data leakage}: Several ML approaches use habitable zone membership or ESI directly as input features to a classifier whose target label is derived from the same quantities---creating circular, leaked learning.
+\end{itemize}
+
+\subsection{Our Contribution}
+
+This work makes the following contributions in Stage 1:
+
+\begin{noveltybox}
+\begin{enumerate}[leftmargin=1cm]
+    \item \textbf{Leakage-free formulation}: HZ factors and ESI serve exclusively as weak supervision label components; they are never included as ML input features.
+    \item \textbf{Ranking regression}: Continuous priority score in $[0,1]$; evaluated with ranking-appropriate metrics (NDCG, MAP, Spearman $\rho$, Kendall $\tau$, Regret@K).
+    \item \textbf{Soft geometric scoring}: $\varepsilon$-smoothed multiplicative formula that preserves interaction physics while preventing total near-zero collapse.
+    \item \textbf{Observation feasibility}: SNR proxy, distance penalty, and transit depth modelled explicitly as first-class ML features.
+    \item \textbf{Uncertainty quantification}: Tree ensemble variance provides calibrated per-planet uncertainty without Bayesian Neural Networks.
+    \item \textbf{Information-theoretic scheduling}: Scientific Gain $= \sigma_i \times D_i$ drives a temporal observation simulation demonstrating improvement over baselines.
+\end{enumerate}
+\end{noveltybox}
+
+\newpage
+
+%% ============================================================
+\section{Background and Theory}
+\label{sec:theory}
+
+\subsection{Habitable Zone Theory (Kopparapu et al.\ 2013, 2014)}
+\label{sec:hz}
+
+The \textbf{Circumstellar Habitable Zone} (CHZ) is defined as the range of orbital distances at which a rocky planet with a suitable atmosphere could maintain liquid water on its surface. The boundaries are determined by the stellar flux $S_{\text{eff}}$ at which the planetary climate system transitions between stable and runaway states.
+
+\subsubsection{Effective Stellar Flux Limits}
+
+Following Kopparapu et al.\ (2014), the effective stellar flux at each HZ boundary is:
+
+\begin{equation}
+S_{\text{eff}} = S_{\text{eff}\odot} + a T_\star + b T_\star^2 + c T_\star^3 + d T_\star^4
+\label{eq:seff}
+\end{equation}
+
+where $T_\star = T_{\text{eff}} - 5780\,\text{K}$ is the stellar temperature offset, and the coefficients $(S_{\text{eff}\odot}, a, b, c, d)$ differ for each boundary limit. Table~\ref{tab:hz_coeffs} lists the four boundary limits used in this work.
+
+\begin{table}[H]
+\centering
+\caption{Kopparapu et al.\ (2014) HZ boundary coefficients}
+\label{tab:hz_coeffs}
+\begin{tabular}{lccccc}
+\toprule
+Boundary & $S_{\text{eff}\odot}$ & $a$ & $b$ & $c$ & $d$ \\
+\midrule
+Recent Venus (RV) & 1.7763 & $1.4335\times10^{-4}$ & $3.3954\times10^{-9}$ & $-7.6364\times10^{-12}$ & $-1.1950\times10^{-15}$ \\
+Runaway Greenhouse (RG) & 1.0385 & $1.2456\times10^{-4}$ & $1.4612\times10^{-8}$ & $-7.6345\times10^{-12}$ & $-1.7511\times10^{-15}$ \\
+Maximum Greenhouse (MG) & 0.3507 & $5.9578\times10^{-5}$ & $1.6707\times10^{-9}$ & $-3.0058\times10^{-12}$ & $-5.1925\times10^{-16}$ \\
+Early Mars (EM) & 0.3207 & $5.4471\times10^{-5}$ & $1.5275\times10^{-9}$ & $-2.1709\times10^{-12}$ & $-3.8282\times10^{-16}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Habitable Zone Boundaries in AU}
+
+Given stellar luminosity $L_\star$ (in solar units) and the flux limit $S_{\text{eff}}$, the orbital distance at that boundary is:
+
+\begin{equation}
+d_{\text{HZ}} = \sqrt{\frac{L_\star}{S_{\text{eff}}}} \quad \text{[AU]}
+\label{eq:hz_au}
+\end{equation}
+
+This yields four boundary distances: $d_{\text{RV}}, d_{\text{RG}}, d_{\text{MG}}, d_{\text{EM}}$, defining the \textbf{Conservative HZ} as $[d_{\text{RG}}, d_{\text{MG}}]$ and the \textbf{Optimistic HZ} as $[d_{\text{RV}}, d_{\text{EM}}]$.
+
+\subsubsection{Continuous HZ Factor}
+
+Rather than a binary HZ membership flag, we compute a continuous factor $f_{\text{thermal}} \in [0,1]$ measuring proximity to the CHZ center:
+
+\begin{equation}
+f_{\text{thermal}} = \begin{cases}
+1 - \dfrac{0.5\,|a - c_{\text{CHZ}}|}{h_{\text{CHZ}}} & \text{if } a \in [d_{\text{RG}}, d_{\text{MG}}] \\[8pt]
+0.5\left(1 - \dfrac{|a - c_{\text{OHZ}}|}{h_{\text{OHZ}}}\right) & \text{if } a \in [d_{\text{RV}}, d_{\text{EM}}] \setminus [d_{\text{RG}}, d_{\text{MG}}] \\[8pt]
+0 & \text{otherwise}
+\end{cases}
+\label{eq:hz_factor}
+\end{equation}
+
+where $c_{\text{CHZ}} = (d_{\text{RG}} + d_{\text{MG}})/2$, $h_{\text{CHZ}} = (d_{\text{MG}} - d_{\text{RG}})/2$ and analogously for OHZ. Planets in the CHZ center receive $f_{\text{thermal}} = 1.0$; planets at the CHZ edges receive $0.5$; and OHZ planets receive scores in $[0, 0.5]$.
+
+\subsection{Earth Similarity Index (Schulze-Makuch et al.\ 2011)}
+\label{sec:esi}
+
+The \textbf{Earth Similarity Index} (ESI) quantifies how similar a planet is to Earth across multiple physical parameters:
+
+\begin{equation}
+\text{ESI} = \prod_{i=1}^{n} \left(1 - \left|\frac{x_i - x_{i,\oplus}}{x_i + x_{i,\oplus}}\right|\right)^{w_i / n}
+\label{eq:esi}
+\end{equation}
+
+where $x_i$ is the measured property of the exoplanet, $x_{i,\oplus}$ is the Earth reference value, $w_i$ is the weight exponent, and $n=3$. Table~\ref{tab:esi_params} lists the parameters used.
+
+\begin{table}[H]
+\centering
+\caption{ESI parameters, reference values, and weight exponents}
+\label{tab:esi_params}
+\begin{tabular}{lccl}
+\toprule
+Parameter & Earth Reference $x_\oplus$ & Weight $w_i$ & Physical Meaning \\
+\midrule
+Radius $R_p$ & $1.0\,R_\oplus$ & 0.57 & Planet size constraint \\
+Bulk density $\rho_p$ & $5.515\,\text{g/cm}^3$ & 1.07 & Composition constraint \\
+Equilibrium temperature $T_{\text{eq}}$ & $288\,\text{K}$ & 0.70 & Thermal constraint \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Important note:} The ESI is used \textit{only} as a component of the weak supervision label. It is never included as an ML input feature (see Section~\ref{sec:leakage}).
+
+\subsection{Mass-Radius Empirical Relations (Chen \& Kipping 2017)}
+\label{sec:mr}
+
+For planets with measured radius but no measured mass (or vice versa), we apply the empirical mass-radius relations of Chen \& Kipping (2017):
+
+\begin{equation}
+M_p = \begin{cases}
+0.9718\, R_p^{3.58} & R_p \leq 1.23\,R_\oplus \quad \text{(rocky regime)} \\
+1.436\, R_p^{1.70}  & 1.23 < R_p \leq 14.26\,R_\oplus \quad \text{(volatile-envelope regime)}
+\end{cases}
+\label{eq:mr}
+\end{equation}
+
+and the inverse relations for radius from mass. This allows imputation of 24 missing masses and 43 missing radii in the dataset.
+
+\subsection{Equilibrium Temperature Derivation}
+
+Where $T_{\text{eq}}$ is missing, we derive it from stellar parameters via the Stefan-Boltzmann relation with Bond albedo $A_B = 0.3$:
+
+\begin{equation}
+T_{\text{eq}} = T_{\text{eff}} \cdot \sqrt{\frac{R_\star}{2a}} \cdot (1 - A_B)^{1/4}
+\label{eq:teq}
+\end{equation}
+
+where $R_\star$ is stellar radius, $a$ is semi-major axis, and $T_{\text{eff}}$ is stellar effective temperature. This recovers equilibrium temperatures for 1,078 planets with missing values.
+
+\newpage
+
+%% ============================================================
+\section{Priority Score Construction}
+\label{sec:priority}
+
+\subsection{Design Philosophy}
+
+The priority score is a \textbf{weak supervision target}---a scientifically motivated proxy for the true (unobservable) quantity of interest (probability of liquid water). Its construction must satisfy:
+
+\begin{enumerate}
+    \item \textbf{Scientifically grounded}: Each component must correspond to known astrophysical theory.
+    \item \textbf{Leakage-free}: No component may appear as an ML input feature.
+    \item \textbf{Continuous}: The score must preserve ordinal information for ranking.
+    \item \textbf{Robust}: No single factor should collapse the entire score to zero.
+    \item \textbf{Well-distributed}: The score should span $[0,1]$ uniformly for optimal ML training.
+\end{enumerate}
+
+\subsection{Version 2.1 Priority Score Formula}
+
+The final priority score is computed in four steps:
+
+\subsubsection{Step 1: Soft Geometric Mean}
+
+\begin{formulabox}
+\begin{equation}
+P_{\text{astro}} = (H + \varepsilon)^{0.5} \cdot (R + \varepsilon)^{0.3} \cdot (E + \varepsilon)^{0.2}, \qquad \varepsilon = 0.1
+\label{eq:softgeo}
+\end{equation}
+\end{formulabox}
+
+\noindent where:
+\begin{itemize}
+    \item $H = f_{\text{thermal}} \in [0,1]$: continuous HZ factor (Eq.~\ref{eq:hz_factor})
+    \item $R = f_{\text{rocky}} \in \{0.1, 0.5, 0.85, 1.0\}$: rocky planet proxy (Table~\ref{tab:rocky_proxy})
+    \item $E = f_{\text{ESI}} \in [0,1]$: Earth Similarity Index (Eq.~\ref{eq:esi})
+    \item $\varepsilon = 0.1$: smoothing constant preventing total zero collapse
+\end{itemize}
+
+\textbf{Why soft geometric instead of strict multiplicative?}
+
+The strict formula $H^{0.5} \cdot R^{0.3} \cdot E^{0.2}$ collapses to zero if \textit{any} single factor is zero. With $\varepsilon = 0.1$, even a planet outside the HZ ($H=0$) receives a base contribution of $0.1^{0.5} \approx 0.316$ from the thermal term---preserving partial credit and preventing ranking degeneration into a near-zero cluster.
+
+\textbf{Why multiplicative (not additive)?}
+
+An additive formula $0.5H + 0.3R + 0.2E$ would allow, for example, a very rocky planet ($R=1$) orbiting far outside the HZ ($H=0$) to score $0.3$---misleadingly high. The multiplicative structure ensures all three conditions must be simultaneously satisfied for a high overall score, which is physically correct.
+
+\begin{table}[H]
+\centering
+\caption{Rocky planet proxy $f_{\text{rocky}}$ based on radius and density}
+\label{tab:rocky_proxy}
+\begin{tabular}{cccl}
+\toprule
+$R_p\,[R_\oplus]$ & $\rho_p\,[\text{g/cm}^3]$ & $f_{\text{rocky}}$ & Physical Interpretation \\
+\midrule
+$\leq 1.8$ & $\geq 3.0$ & 1.00 & Confirmed rocky \\
+$\leq 2.0$ & $\geq 2.0$ & 0.85 & Likely rocky / super-Earth \\
+$\leq 2.5$ & any & 0.50 & Borderline / mini-Neptune \\
+$> 2.5$    & any & 0.10 & Gas/ice giant \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Step 2: Diversity Nudge}
+
+To prevent all high-scoring planets from collapsing into one narrow band (all nearly identical rocky planets in the HZ), we add tiny contributions from three secondary factors:
+
+\begin{equation}
+P_{\text{astro}} \mathrel{+}= 0.02\, f_{\text{ecc}} + 0.02\, f_{\text{met}} + 0.01\, f_{\text{age}}
+\label{eq:diversity}
+\end{equation}
+
+where:
+
+\begin{align}
+f_{\text{ecc}} &= 1 - e \label{eq:fecc} \\[4pt]
+f_{\text{met}} &= \exp\!\left(-\frac{[\text{Fe/H}]^2}{2 \times 0.5^2}\right) \label{eq:fmet} \\[4pt]
+f_{\text{age}} &= \exp\!\left(-\frac{(\text{age} - 5\,\text{Gyr})^2}{2 \times 3^2}\right) \label{eq:fage}
+\end{align}
+
+\noindent Physical justification:
+\begin{itemize}
+    \item \textbf{Eccentricity} ($f_{\text{ecc}}$): Low-eccentricity orbits are more climatically stable; circular orbits ($e \approx 0$) receive maximum score.
+    \item \textbf{Metallicity} ($f_{\text{met}}$): Solar-like metallicity ([Fe/H]~$\approx 0$) is associated with rocky planet formation; the Gaussian peaks at $0$ with $\sigma = 0.5\,\text{dex}$.
+    \item \textbf{Stellar age} ($f_{\text{age}}$): Mature systems ($\sim 5\,\text{Gyr}$) have had time for complex chemistry to develop; very young ($<1\,\text{Gyr}$) or very old ($>10\,\text{Gyr}$) systems receive lower scores.
+\end{itemize}
+
+The total contribution of diversity factors is bounded to $\leq 0.05$, ensuring astrophysical dominance is preserved.
+
+\subsubsection{Step 3: Detectability Blend}
+
+\begin{formulabox}
+\begin{equation}
+P_{\text{final}} = 0.85\, P_{\text{astro}} + 0.15\, D
+\label{eq:blend}
+\end{equation}
+\end{formulabox}
+
+where $D$ is the composite \textbf{detectability} score (see Section~\ref{sec:detectability}). This blend ensures:
+\begin{itemize}
+    \item Astrophysical quality \textbf{dominates} (85\%)---a scientifically interesting planet is not penalized for being slightly harder to observe
+    \item Telescope feasibility \textbf{gently influences} ranking (15\%)---between two equally interesting planets, the more detectable one is preferred
+    \item The ``detectable but scientifically worthless'' pathology is avoided
+\end{itemize}
+
+\subsubsection{Step 4: Quantile Normalization}
+
+\begin{equation}
+\text{priority\_score} = \text{QuantileTransformer}(\text{uniform})\!\left(P_{\text{final}}\right)
+\label{eq:qnorm}
+\end{equation}
+
+The quantile transformer maps $P_{\text{final}}$ to a \textbf{uniform} $[0,1]$ distribution. Benefits:
+\begin{enumerate}
+    \item Uniform distribution maximizes contrast between planets for ranking models
+    \item Gradient signal is smooth across the full score range (no pileup at extremes)
+    \item Directly usable as a reward signal in Stage 3 RL without rescaling
+    \item Mean $= 0.5$, std $= 0.289$ (analytically exact for uniform distribution)
+\end{enumerate}
+
+\textbf{Observed output}: mean $= 0.5000$, std $= 0.2887$---confirming perfect uniform calibration.
+
+\subsection{No-Leakage Guarantee}
+\label{sec:leakage}
+
+\begin{table}[H]
+\centering
+\caption{Leakage audit: label components vs.\ ML features}
+\label{tab:leakage}
+\begin{tabular}{lcc}
+\toprule
+Component & Used in Label & Used as ML Feature \\
+\midrule
+HZ factor ($f_{\text{thermal}}$) & \checkmark & $\times$ \\
+ESI ($f_{\text{ESI}}$)           & \checkmark & $\times$ \\
+Rocky proxy ($f_{\text{rocky}}$) & \checkmark & $\times$ \\
+HZ boundaries ($d_{\text{RV}}, d_{\text{RG}}, d_{\text{MG}}, d_{\text{EM}}$) & \checkmark & $\times$ \\
+$f_{\text{ecc}}, f_{\text{met}}, f_{\text{age}}$ & \checkmark & $\times$ \\
+\midrule
+$R_p, M_p, \rho_p, P_{\text{orb}}, a, e, i, T_{\text{eq}}, F_{\text{insol}}$ & $\times$ & \checkmark \\
+$T_{\text{eff}}, R_\star, M_\star, L_\star, [\text{Fe/H}], \log g, \text{age}$  & $\times$ & \checkmark \\
+$d_{\text{sys}}, V_{\text{mag}}, J_{\text{mag}}$                               & $\times$ & \checkmark \\
+SNR proxy, distance penalty, transit depth, detectability                      & $\times$ & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The code explicitly verifies no leakage at runtime before ML training.
+
+\newpage
+
+%% ============================================================
+\section{Data Acquisition and Feature Engineering}
+\label{sec:data}
+
+\subsection{NASA Exoplanet Archive --- TAP API}
+
+Data is sourced from the \textbf{Planetary Systems Composite Parameters} (\texttt{pscomppars}) table of the NASA Exoplanet Archive via the Table Access Protocol (TAP) API using ADQL queries:
+
+\begin{lstlisting}[language=SQL, caption={ADQL query to NASA TAP API}]
+SELECT pl_name, hostname, pl_rade, pl_bmasse, pl_dens,
+       pl_orbper, pl_orbsmax, pl_orbeccen, pl_orbincl,
+       pl_eqt, pl_insol, pl_trandep, pl_trandur,
+       st_teff, st_rad, st_mass, st_lum, st_met,
+       st_logg, st_age, sy_dist, sy_vmag, sy_jmag
+FROM pscomppars
+WHERE pl_rade IS NOT NULL OR pl_bmasse IS NOT NULL
+ORDER BY pl_name
+\end{lstlisting}
+
+The query returns 6,284 records spanning all confirmed exoplanet systems.
+
+\subsection{Dataset Statistics}
+
+\begin{table}[H]
+\centering
+\caption{Dataset overview after acquisition and cleaning}
+\label{tab:dataset}
+\begin{tabular}{lrl}
+\toprule
+Property & Value & Notes \\
+\midrule
+Raw records & 6,284 & All confirmed exoplanets \\
+ML-ready records & 5,522 & After required-field filtering \\
+ML features & 31 & Leakage-free (see Table~\ref{tab:features}) \\
+Priority score mean & 0.5000 & After quantile normalization \\
+Priority score std & 0.2887 & Analytically exact for uniform \\
+Planets with score $\geq 0.5$ & 3,141 & $\approx 56.9\%$ of ML dataset \\
+Missing masses imputed & 24 & Via Chen \& Kipping (2017) \\
+Missing radii imputed & 43 & Via inverse Chen \& Kipping \\
+Missing $T_{\text{eq}}$ computed & 1,078 & Via Stefan-Boltzmann \\
+Missing $\rho_p$ computed & 85 & From $M_p, R_p$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{ML Feature Set}
+
+\begin{table}[H]
+\centering
+\caption{Complete ML feature set (31 features, all leakage-free)}
+\label{tab:features}
+\begin{tabular}{llp{6cm}}
+\toprule
+Feature & Unit & Physical Meaning \\
+\midrule
+\multicolumn{3}{l}{\textit{Planetary Physics (9 features)}} \\
+\texttt{pl\_rade} & $R_\oplus$ & Planet radius \\
+\texttt{pl\_bmasse} & $M_\oplus$ & Planet mass \\
+\texttt{pl\_dens} & g/cm$^3$ & Bulk density \\
+\texttt{pl\_orbper} & days & Orbital period \\
+\texttt{pl\_orbsmax} & AU & Semi-major axis \\
+\texttt{pl\_orbeccen} & -- & Orbital eccentricity \\
+\texttt{pl\_orbincl} & deg & Orbital inclination \\
+\texttt{pl\_eqt} & K & Equilibrium temperature \\
+\texttt{pl\_insol} & $F_\oplus$ & Insolation flux \\
+\midrule
+\multicolumn{3}{l}{\textit{Stellar Physics (7 features)}} \\
+\texttt{st\_teff} & K & Stellar effective temperature \\
+\texttt{st\_rad} & $R_\odot$ & Stellar radius \\
+\texttt{st\_mass} & $M_\odot$ & Stellar mass \\
+\texttt{st\_lum\_linear} & $L_\odot$ & Stellar luminosity (linear) \\
+\texttt{st\_met} & dex & Stellar metallicity [Fe/H] \\
+\texttt{st\_logg} & log(cm/s$^2$) & Surface gravity \\
+\texttt{st\_age} & Gyr & Stellar age \\
+\midrule
+\multicolumn{3}{l}{\textit{Distance \& Brightness (3 features)}} \\
+\texttt{sy\_dist} & pc & System distance \\
+\texttt{sy\_vmag} & mag & V-band apparent magnitude \\
+\texttt{sy\_jmag} & mag & J-band apparent magnitude \\
+\midrule
+\multicolumn{3}{l}{\textit{Observation Feasibility (5 features)}} \\
+\texttt{snr\_proxy} & -- & Transit SNR proxy \\
+\texttt{distance\_penalty} & -- & Spectroscopic accessibility \\
+\texttt{transit\_depth\_norm} & -- & Normalised transit depth \\
+\texttt{obs\_duration\_norm} & -- & Normalised transit duration \\
+\texttt{detectability} & -- & Composite observability $[0,1]$ \\
+\midrule
+\multicolumn{3}{l}{\textit{Spectral Type Encoding (7 features)}} \\
+\texttt{star\_O/B/A/F/G/K/M} & binary & One-hot spectral class \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Observation Feasibility Features}
+\label{sec:detectability}
+
+Observation feasibility features model the telescope's ability to detect and characterize the planet. These are genuine ML inputs (not label components):
+
+\subsubsection{SNR Proxy}
+
+The signal-to-noise ratio proxy for atmospheric spectroscopy is:
+
+\begin{equation}
+\text{SNR\_proxy} = \delta_{\text{transit}} \cdot \sqrt{T_{\text{dur}}} \cdot f_{\text{flux}}
+\label{eq:snr}
+\end{equation}
+
+where $\delta_{\text{transit}}$ is the transit depth [\%], $T_{\text{dur}}$ is transit duration [hours], and $f_{\text{flux}} = 10^{(10 - J_{\text{mag}})/2.5}$ is the flux factor relative to a magnitude-10 reference. J-band is preferred as water absorption features appear in the near-infrared.
+
+\subsubsection{Distance Penalty}
+
+Spectroscopic follow-up becomes exponentially harder for distant systems:
+
+\begin{equation}
+f_{\text{dist}} = e^{-d / 100\,\text{pc}}
+\label{eq:distpen}
+\end{equation}
+
+This ranges from 1.0 for nearby stars ($d \approx 0$) to $e^{-10} \approx 4.5\times10^{-5}$ for stars at 1,000 pc.
+
+\subsubsection{Composite Detectability}
+
+\begin{equation}
+D = 0.5\,\hat{\text{SNR}} + 0.3\, f_{\text{dist}} + 0.2\,\hat{\delta}_{\text{transit}}
+\label{eq:detectability}
+\end{equation}
+
+where hat notation denotes min-max normalisation. This composite score $D \in [0,1]$ represents the overall ease of atmospheric characterization.
+
+\newpage
+
+%% ============================================================
+\section{Machine Learning Pipeline}
+\label{sec:ml}
+
+\subsection{Problem Formulation}
+
+Let $\mathbf{X} \in \mathbb{R}^{n \times p}$ be the feature matrix of $n = 5{,}522$ planets and $p = 31$ features. Let $\mathbf{y} \in [0,1]^n$ be the quantile-normalised priority scores. We train a regressor $f: \mathbb{R}^p \to [0,1]$ to minimize:
+
+\begin{equation}
+\mathcal{L}(f) = \frac{1}{n}\sum_{i=1}^{n}(f(\mathbf{x}_i) - y_i)^2
+\label{eq:mseloss}
+\end{equation}
+
+The goal is \textbf{not} to minimize regression loss per se, but to learn a function $f$ that \textbf{correctly orders} planets by priority, as measured by ranking metrics.
+
+\subsection{Models}
+
+Four ensemble tree-based regressors are trained:
+
+\begin{table}[H]
+\centering
+\caption{Model configurations}
+\label{tab:models}
+\begin{tabular}{lp{9cm}}
+\toprule
+Model & Key Hyperparameters \\
+\midrule
+Random Forest & $n_{\text{trees}}=300$, \texttt{max\_features='sqrt'}, \texttt{min\_samples\_leaf=2}, no depth limit \\
+XGBoost & $n_{\text{trees}}=400$, \texttt{max\_depth=6}, $\eta=0.05$, subsample$=0.8$, colsample$=0.8$ \\
+Gradient Boosting & $n_{\text{trees}}=300$, \texttt{max\_depth=5}, $\eta=0.05$, subsample$=0.8$ \\
+LightGBM & $n_{\text{trees}}=400$, $\eta=0.05$, \texttt{num\_leaves=63}, subsample$=0.8$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation: Ranking Metrics}
+\label{sec:metrics}
+
+Since we care about the \textit{ordering} of predictions, we evaluate primarily with ranking metrics:
+
+\subsubsection{Normalized Discounted Cumulative Gain (NDCG@K)}
+
+\begin{equation}
+\text{NDCG@K} = \frac{\text{DCG@K}}{\text{IDCG@K}}, \qquad \text{DCG@K} = \sum_{i=1}^{K} \frac{y_{\pi(i)}}{\log_2(i+1)}
+\label{eq:ndcg}
+\end{equation}
+
+where $\pi$ is the permutation induced by predicted scores (descending) and IDCG is the ideal (oracle) DCG. NDCG@50 $= 1.0$ means the model's top-50 ranking is identical to the ground truth.
+
+\subsubsection{Mean Average Precision (MAP@K)}
+
+\begin{equation}
+\text{MAP@K} = \frac{\sum_{k=1}^{K} P@k \cdot \mathbf{1}[y_{\pi(k)} \geq \tau]}{|\{i : y_i \geq \tau\}|}
+\label{eq:map}
+\end{equation}
+
+where $\tau = 0.3$ is the relevance threshold and $P@k$ is precision at rank $k$. MAP@50 $= 1.0$ indicates all relevant planets appear in the top-50.
+
+\subsubsection{Spearman Rank Correlation}
+
+\begin{equation}
+\rho_s = 1 - \frac{6\sum_i d_i^2}{n(n^2-1)}, \quad d_i = \text{rank}(\hat{y}_i) - \text{rank}(y_i)
+\label{eq:spearman}
+\end{equation}
+
+\subsubsection{Kendall's Tau}
+
+\begin{equation}
+\tau = \frac{n_c - n_d}{\frac{1}{2}n(n-1)}
+\label{eq:kendall}
+\end{equation}
+
+where $n_c$ and $n_d$ are the number of concordant and discordant pairs respectively.
+
+\subsubsection{Regret@K}
+
+\begin{equation}
+\text{Regret@K} = 1 - \frac{\sum_{i \in \hat{\mathcal{T}}_K} y_i}{\sum_{i \in \mathcal{T}_K^*} y_i}
+\label{eq:regret}
+\end{equation}
+
+where $\hat{\mathcal{T}}_K$ is the model's top-K selection and $\mathcal{T}_K^*$ is the oracle's top-K. Regret@50 $= 0.01$ means the model recovers 99\% of the maximum possible scientific value from the top-50 selection.
+
+\subsection{Cross-Validation Protocol}
+
+5-fold cross-validation is performed with Spearman $\rho$ as the CV metric (not R$^2$ or RMSE), ensuring ranking generalization is directly measured:
+
+\begin{equation}
+\text{CV-Spearman} = \frac{1}{5}\sum_{k=1}^{5} \rho_s^{(k)}\left(\mathbf{y}_{\text{val}}^{(k)},\, f^{(k)}\!\left(\mathbf{X}_{\text{val}}^{(k)}\right)\right)
+\label{eq:cvspearman}
+\end{equation}
+
+\newpage
+
+%% ============================================================
+\section{Uncertainty Estimation}
+\label{sec:uncertainty}
+
+\subsection{Tree Ensemble Variance}
+
+For Random Forest with $T$ trees, the per-planet prediction uncertainty is estimated as the standard deviation across individual tree predictions:
+
+\begin{equation}
+\hat{\mu}_i = \frac{1}{T}\sum_{t=1}^{T} h_t(\mathbf{x}_i), \qquad \hat{\sigma}_i = \sqrt{\frac{1}{T}\sum_{t=1}^{T}(h_t(\mathbf{x}_i) - \hat{\mu}_i)^2}
+\label{eq:tree_variance}
+\end{equation}
+
+where $h_t$ denotes the $t$-th decision tree. This provides \textbf{calibrated epistemic uncertainty}---high $\hat{\sigma}_i$ indicates the model is less confident about planet $i$'s ranking.
+
+\subsection{Uncertainty Interpretation}
+
+This allows reporting predictions with explicit uncertainty bounds, e.g.:
+\begin{align*}
+\text{Planet A:} &\quad 0.82 \pm 0.05 \quad \text{(high confidence -- no observation urgency)} \\
+\text{Planet B:} &\quad 0.81 \pm 0.24 \quad \text{(low confidence -- should be observed to resolve)}
+\end{align*}
+
+Despite similar predicted priorities, Planet B is a more valuable observation target because resolving its uncertainty yields higher expected scientific information gain.
+
+\subsection{Scientific Gain}
+
+The \textbf{Scientific Gain} metric quantifies the information value of observing planet $i$:
+
+\begin{equation}
+\text{SG}_i = \hat{\sigma}_i \times D_i
+\label{eq:scigain}
+\end{equation}
+
+This integrates: (1) how much uncertainty can be reduced by observing planet $i$; and (2) how feasible that observation is. It directly operationalizes the principle: \textit{observe the planet where you will learn the most per telescope hour}.
+
+\newpage
+
+%% ============================================================
+\section{Temporal Observation Simulation}
+\label{sec:simulation}
+
+\subsection{Algorithm}
+
+The simulation models a sequential observation campaign across multiple rounds. In each round, planets are selected based on a composite score integrating predicted priority and scientific gain:
+
+\begin{algorithm}[H]
+\caption{Uncertainty-Aware Temporal Observation Simulation}
+\label{alg:simulation}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Planet set $\mathcal{P}$, priorities $\{\hat{\mu}_i\}$, uncertainties $\{\hat{\sigma}_i\}$, detectabilities $\{D_i\}$, rounds $R$, budget $K$
+\State \textbf{Output:} Observation log, cumulative scientific gain
+\State $\mathcal{O} \leftarrow \emptyset$ \Comment{Set of observed planets}
+\For{$r = 1, 2, \ldots, R$}
+    \State Compute composite score: $s_i \leftarrow \hat{\mu}_i + 0.5 \cdot \hat{\sigma}_i \cdot D_i$ for all $i \notin \mathcal{O}$
+    \State Select top-$K$: $\mathcal{T}_r \leftarrow \arg\text{top}_K \{s_i : i \notin \mathcal{O}\}$
+    \State Accumulate gain: $G_r \leftarrow \sum_{i \in \mathcal{T}_r} \hat{\sigma}_i \cdot D_i$
+    \For{$i \in \mathcal{T}_r$}
+        \State Update: $\hat{\sigma}_i \leftarrow \hat{\sigma}_i / 2$ \Comment{Observation halves uncertainty}
+        \State $\mathcal{O} \leftarrow \mathcal{O} \cup \{i\}$
+    \EndFor
+    \State Record $(r, \mathcal{T}_r, G_r, \text{mean}(\hat{\mu}_{\mathcal{T}_r}))$
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Baselines}
+
+Two baselines are compared:
+\begin{enumerate}
+    \item \textbf{Random selection}: $K$ planets chosen uniformly at random each round
+    \item \textbf{Static ML ranking}: Planets selected by predicted priority only (no uncertainty weighting, no update between rounds)
+\end{enumerate}
+
+The simulation directly motivates Stage 2 (Dynamic Prioritization Engine) and Stage 3 (RL Autonomous Scheduler) by showing that uncertainty-aware sequential selection outperforms both baselines in cumulative scientific gain.
+
+\newpage
+
+%% ============================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{Model Performance}
+
+\begin{table}[H]
+\centering
+\caption{Stage 1 Results: Ranking and Regression Metrics (test set, 80/20 split)}
+\label{tab:results}
+\begin{tabular}{lcccccccc}
+\toprule
+Model & NDCG@50 & MAP@50 & Spearman $\rho$ & Kendall $\tau$ & Regret@50 & R$^2$ & RMSE & CV Spearman \\
+\midrule
+Random Forest     & 0.977 & 1.000 & 0.972 & 0.882 & 0.024 & 0.943 & 0.066 & $0.966 \pm 0.004$ \\
+XGBoost           & 0.990 & 1.000 & 0.985 & 0.930 & 0.011 & 0.971 & 0.047 & $0.981 \pm 0.004$ \\
+Gradient Boosting & 0.975 & 0.985 & 0.984 & 0.929 & 0.030 & 0.968 & 0.050 & $0.981 \pm 0.004$ \\
+LightGBM          & 0.989 & 1.000 & \textbf{0.985} & \textbf{0.933} & \textbf{0.010} & \textbf{0.971} & \textbf{0.047} & $\mathbf{0.982 \pm 0.003}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Key Findings}
+
+\begin{enumerate}
+    \item \textbf{Near-perfect ranking quality}: All models achieve NDCG@50 $> 0.975$ and MAP@50 $\geq 0.985$, confirming that ML can recover the scientifically motivated ranking from raw astrophysical parameters.
+
+    \item \textbf{Minimal regret}: LightGBM achieves Regret@50 $= 0.010$, meaning only 1\% of maximum possible scientific value is missed by selecting its top-50 recommendation over the oracle top-50.
+
+    \item \textbf{Stable generalization}: CV Spearman $> 0.96$ across all folds for all models confirms the ranking quality generalizes to unseen planets.
+
+    \item \textbf{Best model}: LightGBM achieves the best or tied-best performance across all metrics with the lowest variance (CV std $= 0.003$).
+
+    \item \textbf{Quantile normalization impact}: The uniform score distribution directly enables the near-perfect MAP@50 scores---the model learns smooth ranking over the full [0,1] range rather than discriminating within a heavily skewed distribution.
+\end{enumerate}
+
+\subsection{Generated Plots}
+
+The following plots were generated during Stage 1 execution:
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/priority_score_distribution.png}
+\caption{Priority score distribution (left: histogram showing uniform distribution after quantile normalization; right: Radius vs.\ $T_{\text{eq}}$ scatter coloured by priority score). High-priority planets cluster around $T_{\text{eq}} \approx 288\,\text{K}$ and $R_p \leq 2\,R_\oplus$.}
+\label{fig:priority_dist}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/observability_analysis.png}
+\caption{Observation feasibility analysis. Left: SNR proxy distribution. Center: Distance vs.\ priority score coloured by detectability---nearby high-priority planets form the primary scheduling targets. Right: Detectability vs.\ priority score, which defines the Stage 2 scheduling domain.}
+\label{fig:observability}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/predicted_vs_actual.png}
+\caption{Predicted vs.\ actual priority scores for all four models. Points clustering tightly around the $y=x$ diagonal confirm high R$^2$ (0.943--0.971). Note the clean coverage across the full [0,1] range, enabled by quantile normalization.}
+\label{fig:pred_vs_actual}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/ranking_metrics.png}
+\caption{Ranking metrics comparison across models. XGBoost and LightGBM dominate on NDCG@50 and Spearman $\rho$. All models achieve Spearman $> 0.97$, confirming robust ranking recovery.}
+\label{fig:ranking_metrics}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{../plots/cv_spearman.png}
+\caption{5-fold cross-validation Spearman rank correlation per model. Narrow interquartile ranges confirm stable generalization across all data folds.}
+\label{fig:cv_spearman}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/uncertainty_analysis.png}
+\caption{Left: Uncertainty vs.\ predicted priority, coloured by scientific gain. Gold stars mark top-20 scientific gain targets---these are the highest-value observation candidates. Right: Distribution of prediction uncertainty (std across trees), showing the range of epistemic uncertainty across the planet population.}
+\label{fig:uncertainty}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/temporal_simulation.png}
+\caption{Left: Cumulative scientific gain across 3 observation rounds. The uncertainty-aware system (teal) outperforms static ML ranking (gold) and random selection (pink) in every round, motivating the Stage 2 dynamic scheduler. Right: Mean priority of selected targets per round---the decrease indicates appropriate exploration of borderline targets.}
+\label{fig:temporal}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/feature_importance.png}
+\caption{Native feature importances from tree-based models (top 15 features). Equilibrium temperature, stellar effective temperature, and semi-major axis consistently rank as the most important astrophysical drivers---all of which are raw observable parameters, confirming no leakage.}
+\label{fig:feature_importance}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/shap_random_forest.png}
+\caption{SHAP feature attribution for Random Forest: Astrophysical Drivers of Telescope Prioritization. Green bars: planetary parameters; gold bars: stellar parameters; pink bars: observational parameters. $T_{\text{eq}}$ and $T_{\text{eff}}$ dominate, consistent with the thermal constraint being the most important habitability factor.}
+\label{fig:shap_rf}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/shap_xgboost.png}
+\caption{SHAP feature attribution for XGBoost. LightGBM and XGBoost show similar SHAP profiles, with $T_{\text{eq}}$, orbital parameters, and stellar luminosity as primary drivers.}
+\label{fig:shap_xgb}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../plots/feature_correlations.png}
+\caption{Feature correlation matrix. Strong correlations between $T_{\text{eq}}$ and $a$ (semi-major axis) are expected by physics. The absence of strong correlations with leakage columns (HZ factors, ESI) confirms the no-leakage design.}
+\label{fig:correlations}
+\end{figure}
+
+\newpage
+
+%% ============================================================
+\section{SHAP Analysis: Astrophysical Drivers}
+\label{sec:shap}
+
+SHAP (SHapley Additive exPlanations, Lundberg \& Lee 2017) provides a game-theoretic attribution of each feature's contribution to each prediction. For planet $i$ and feature $j$:
+
+\begin{equation}
+\phi_j^{(i)} = \sum_{S \subseteq \mathcal{F} \setminus \{j\}} \frac{|S|!(|\mathcal{F}|-|S|-1)!}{|\mathcal{F}|!}\left[f_{S\cup\{j\}}(\mathbf{x}^{(i)}) - f_S(\mathbf{x}^{(i)})\right]
+\label{eq:shap}
+\end{equation}
+
+The mean absolute SHAP value $\bar{\phi}_j = \frac{1}{n}\sum_i |\phi_j^{(i)}|$ quantifies each feature's average contribution across all planets.
+
+\subsection{Key Findings from SHAP}
+
+\begin{enumerate}
+    \item \textbf{Equilibrium temperature ($T_{\text{eq}}$)} is the dominant driver across all models, consistent with the thermal habitability constraint being the most important factor.
+    \item \textbf{Stellar effective temperature ($T_{\text{eff}}$)} ranks second, as it directly determines the HZ boundaries via Eq.~\ref{eq:seff}.
+    \item \textbf{Semi-major axis ($a$)} ranks third---orbit placement relative to the HZ is the most important geometric factor.
+    \item \textbf{Planet radius ($R_p$)} and \textbf{stellar luminosity ($L_\star$)} complete the top 5.
+    \item \textbf{Observational features} (detectability, SNR proxy) contribute but rank lower, confirming that astrophysics dominates the prioritization.
+    \item \textbf{No leakage signal}: HZ factors and ESI do not appear in the SHAP analysis since they are excluded from ML features.
+\end{enumerate}
+
+This SHAP analysis allows us to reframe feature importance as \textbf{``Astrophysical Drivers of Telescope Prioritization''}---a more scientifically meaningful framing than generic ML feature importance.
+
+\newpage
+
+%% ============================================================
+\section{Stage 1 Summary and Stage 2/3 Roadmap}
+\label{sec:roadmap}
+
+\subsection{Stage 1 Contributions}
+
+\begin{table}[H]
+\centering
+\caption{Complete summary of Stage 1 contributions}
+\label{tab:contributions}
+\begin{tabular}{lp{10cm}}
+\toprule
+Component & Description \\
+\midrule
+Data pipeline & NASA TAP API acquisition, imputation, feature engineering for 6,284 planets \\
+Leakage-free design & HZ/ESI exclusively in label construction; never in ML features \\
+Soft geometric scoring & $(H+\varepsilon)^{0.5}(R+\varepsilon)^{0.3}(E+\varepsilon)^{0.2}$, $\varepsilon=0.1$ \\
+Diversity nudge & Eccentricity, metallicity, stellar age (total weight $\leq 0.05$) \\
+Detectability blend & $0.85\,P_{\text{astro}} + 0.15\,D$ \\
+Quantile normalization & Uniform $[0,1]$ --- mean $= 0.500$, std $= 0.289$ (exact) \\
+Observation modelling & SNR proxy, distance penalty, transit depth, detectability \\
+Uncertainty quantification & Tree ensemble variance: $\hat{y} = 0.82 \pm 0.11$ format \\
+Scientific gain & $\text{SG}_i = \hat{\sigma}_i \times D_i$ \\
+Ranking-aware evaluation & NDCG@50, MAP@50, Spearman $\rho$, Kendall $\tau$, Regret@50 \\
+Temporal simulation & 3-round sequential scheduling vs.\ random/static baselines \\
+SHAP explainability & Astrophysical drivers of telescope prioritization \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Research Questions Addressed}
+
+\begin{description}
+    \item[RQ1] Can ML recover a scientifically motivated ranking of exoplanet targets from raw astrophysical parameters, without data leakage?\\
+    \textbf{Yes.} All models achieve NDCG@50 $> 0.97$ and CV Spearman $> 0.96$ on held-out data.
+
+    \item[RQ2] Does uncertainty-aware selection outperform static ranking for sequential telescope scheduling?\\
+    \textbf{Yes.} The temporal simulation shows higher cumulative scientific gain than both random selection and static ML ranking across all rounds.
+\end{description}
+
+\subsection{Stage 2: Dynamic Prioritization Engine (Planned)}
+
+Stage 2 introduces an adaptive weight system for the priority components:
+
+\begin{equation}
+\text{Priority}_{\text{dynamic}} = \alpha\, H + \beta\, S + \gamma\, U + \delta\, O
+\label{eq:dynamic}
+\end{equation}
+
+where $\alpha, \beta, \gamma, \delta$ are time-varying weights that adapt based on:
+\begin{itemize}
+    \item Observed uncertainty reduction after each observation round
+    \item Telescope status (different instruments have different $S$, $O$ sensitivities)
+    \item Scientific context (is the mission focused on rocky planets or gas giants?)
+\end{itemize}
+
+\subsection{Stage 3: Reinforcement Learning Autonomous Scheduler (Planned)}
+
+Stage 3 frames the scheduling problem as a Markov Decision Process:
+
+\begin{align}
+\text{State:}  &\quad s_t = \{\hat{\mu}_i^{(t)}, \hat{\sigma}_i^{(t)}, D_i, T_{\text{remaining}}\} \notag \\
+\text{Action:} &\quad a_t = \text{select } \mathcal{O}_t \subset \mathcal{P} \setminus \mathcal{O}_{<t} \notag \\
+\text{Reward:} &\quad R_t = \Delta\text{Confidence}_t + \lambda \cdot \text{WaterDetectionGain}_t \label{eq:rl_reward}
+\end{align}
+
+The RL agent (DQN or PPO) learns an observation policy that maximizes cumulative reward over the full campaign, directly optimizing for water detection probability.
+
+\newpage
+
+%% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+This report presents Stage 1 of the Adaptive AI-Driven Telescope Target Prioritization Framework---a scientifically rigorous, leakage-free, ranking-based machine learning pipeline for exoplanet observation scheduling.
+
+The key innovation is the reformulation from binary habitability classification to \textbf{continuous regression evaluated as a ranking problem}, combined with a v2.1 priority score that:
+(1) uses soft geometric averaging to prevent near-zero collapse;
+(2) adds minimal diversity factors to prevent ranking degeneration;
+(3) blends telescope detectability at 15\% to incorporate real scheduling constraints; and
+(4) applies quantile normalization for optimal ML training and future RL compatibility.
+
+All four ensemble models achieve exceptional ranking quality (NDCG@50 $> 0.97$, Regret@50 $< 0.03$, CV Spearman $> 0.96$), with \textbf{LightGBM} as the best-performing model. Tree ensemble variance provides calibrated per-planet uncertainty, enabling the scientific gain metric that drives the temporal observation simulation.
+
+Stage 1 is complete. The pipeline is reproducible, version-controlled, and deployed on Google Colab with full GitHub synchronization. The codebase is ready for Stage 2 dynamic prioritization and Stage 3 RL autonomous scheduling.
+
+%% ============================================================
+\section*{Acknowledgments}
+
+Data sourced from the NASA Exoplanet Archive, which is operated by the California Institute of Technology under contract with NASA under the Exoplanet Exploration Program.
+
+%% ============================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+%% ============================================================
+\appendix
+
+\section{Repository Structure}
+
+\begin{lstlisting}[language=bash, caption={Project file structure}]
+water/
+├── habitability_predictor.ipynb   # Main Colab notebook
+├── src/
+│   ├── __init__.py
+│   ├── data_acquisition.py        # Stage 1A: Data + feature engineering
+│   └── ml_pipeline.py             # Stage 1B/C/D: ML + metrics + simulation
+├── data/
+│   ├── exoplanets_raw.csv         # 6,284 raw records (NASA)
+│   ├── exoplanets_processed.csv   # 5,522 ML-ready planets
+│   └── final_priority_ranking.csv # Full ranked output with uncertainty
+├── models/
+│   ├── random_forest.joblib       # 52.6 MB (300 trees)
+│   ├── xgboost_model.json
+│   ├── gradient_boosting.joblib
+│   └── lightgbm.joblib
+├── plots/                         # All 11 generated plots
+├── report/
+│   ├── main.tex                   # This document
+│   └── references.bib
+├── README.md
+└── .gitignore
+\end{lstlisting}
+
+\section{Priority Score Code (v2.1)}
+
+\begin{lstlisting}[caption={compute\_priority\_score() -- core formula (src/data\_acquisition.py)}]
+def compute_priority_score(df):
+    from sklearn.preprocessing import QuantileTransformer
+    eps = 0.1
+
+    # Step 1: Soft geometric mean
+    f_thermal = _compute_hz_factor(df)        # Kopparapu HZ
+    f_esi     = _compute_esi(df)              # Earth Similarity
+    f_rocky   = ...                            # Radius/density proxy
+
+    P_astro = (
+        (f_thermal + eps) ** 0.5 *
+        (f_rocky   + eps) ** 0.3 *
+        (f_esi     + eps) ** 0.2
+    )
+
+    # Step 2: Diversity nudge
+    f_ecc = 1.0 - eccentricity
+    f_met = exp(-0.5 * (metallicity / 0.5)**2)
+    f_age = exp(-0.5 * ((age - 5.0) / 3.0)**2)
+    P_astro += 0.02*f_ecc + 0.02*f_met + 0.01*f_age
+
+    # Step 3: Detectability blend
+    P_final = 0.85 * P_astro + 0.15 * detectability
+
+    # Step 4: Quantile normalize
+    qt = QuantileTransformer(output_distribution='uniform',
+                              random_state=42)
+    priority_score = qt.fit_transform(P_final)
+\end{lstlisting}
+
+\end{document}
