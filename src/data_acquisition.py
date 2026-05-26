@@ -1,9 +1,9 @@
 """
-data_acquisition.py  — v2.0
+data_acquisition.py  — v2.1
 ============================
 Stage 1: Exoplanet Probabilistic Prioritization Pipeline
 
-KEY DESIGN DECISIONS (v2.0):
+KEY DESIGN DECISIONS (v2.1):
   - No data leakage: HZ boundaries and ESI are used ONLY for constructing the
     target label (priority_score) via weak supervision. They are NEVER passed
     as ML features.
@@ -14,7 +14,17 @@ KEY DESIGN DECISIONS (v2.0):
     distance penalty) and included as ML features.
   - Uncertainty is estimated post-prediction via ensemble variance.
 
-Scientific formulations:
+Priority Score formula (v2.1):
+  Step 1 — Soft geometric mean (avoids near-zero collapse):
+    P_astro = (H+eps)^0.5 * (R+eps)^0.3 * (E+eps)^0.2 ,  eps=0.1
+  Step 2 — Tiny diversity nudge (eccentricity, metallicity, stellar age):
+    P_astro += 0.02*f_ecc + 0.02*f_met + 0.01*f_age
+  Step 3 — Blend in detectability (15%):
+    P_final = 0.85 * P_astro + 0.15 * D
+  Step 4 — Quantile normalize to uniform [0,1]:
+    priority_score = QuantileTransformer(uniform).fit_transform(P_final)
+
+Scientific references:
   - Kopparapu et al. (2013, 2014) Habitable Zone boundaries  [LABEL ONLY]
   - Chen & Kipping (2017) empirical mass-radius imputation
   - Earth Similarity Index (Schulze-Makuch et al. 2011)      [LABEL ONLY]
@@ -357,27 +367,39 @@ def _compute_esi(df):
 
 def compute_priority_score(df):
     """
-    Build the continuous priority score target using weak supervision.
+    Build the continuous priority score target via weak supervision (v2.1).
 
-    The score integrates three orthogonal signals via a weighted product
-    to ensure all components must be non-zero for a high score:
+    Formula:
+      Step 1 — Soft geometric mean with epsilon=0.1 (avoids near-zero collapse):
+        P_astro = (H + eps)^0.5 * (R + eps)^0.3 * (E + eps)^0.2
 
-      priority_score = f_thermal^w1 * f_rocky^w2 * f_esi^w3
+        eps = 0.1 ensures no single zero factor kills the score entirely,
+        while preserving the multiplicative interaction physics.
 
-    where all factors are derived from KNOWN astrophysical theory and
-    are EXCLUDED from the ML feature set (no leakage).
+      Step 2 — Tiny diversity nudge (prevents ranking collapse into narrow band):
+        f_ecc: low-eccentricity planets are more stable (weight 0.02)
+        f_met: solar-like metallicity preferred (weight 0.02)
+        f_age: mature star systems preferred (weight 0.01)
 
-    Also computes:
-      detectability   : observation feasibility [0,1]  (IS an ML feature)
-      scientific_gain : uncertainty * detectability     (post-prediction)
+      Step 3 — Blend in detectability D (telescope feasibility, 15%):
+        P_final = 0.85 * P_astro + 0.15 * D
+        Astrophysics dominates; telescope constraints gently influence order.
+
+      Step 4 — Quantile normalize to uniform [0,1]:
+        Smoother distribution for ranking models, uncertainty estimation, and RL.
+
+    All label components (H, R, E) are EXCLUDED from ML features (no leakage).
     """
-    df = df.copy()
+    from sklearn.preprocessing import QuantileTransformer
 
-    # ---- Thermal habitability score (Kopparapu HZ) --------------------------
+    df   = df.copy()
+    eps  = 0.1
+
+    # ── Step 1a: Thermal habitability (Kopparapu HZ) ──────────────────────────
     f_thermal = _compute_hz_factor(df)
-    print(f"[Label] CHZ/OHZ calculation complete.")
+    print("[Label] CHZ/OHZ calculation complete.")
 
-    # ---- Physical habitability score (rocky planet proxy) -------------------
+    # ── Step 1b: Physical habitability (rocky planet proxy) ───────────────────
     rp  = df["pl_rade"].fillna(np.inf).values
     rho = df["pl_dens"].fillna(0.0).values
     f_rocky = np.where(
@@ -386,26 +408,54 @@ def compute_priority_score(df):
         np.where(rp <= 2.5, 0.5, 0.1))
     )
 
-    # ---- Earth Similarity Index (Schulze-Makuch 2011) -----------------------
+    # ── Step 1c: Earth Similarity Index (Schulze-Makuch 2011) ─────────────────
     f_esi = _compute_esi(df)
     f_esi = np.where(np.isnan(f_esi), 0.0, f_esi)
 
-    # ---- Weighted product (multiplicative — all must be high) ---------------
-    # Weights chosen to reflect scientific importance:
-    #   thermal (HZ): dominant constraint (w=0.5)
-    #   rocky:        necessary for surface liquid water (w=0.3)
-    #   ESI:          multi-parameter similarity proxy (w=0.2)
-    priority_score = (f_thermal ** 0.5) * (f_rocky ** 0.3) * (f_esi ** 0.2)
-    df["priority_score"] = np.clip(priority_score, 0.0, 1.0)
+    # ── Step 1d: Soft geometric mean (epsilon prevents total collapse) ─────────
+    P_astro = (
+        (f_thermal + eps) ** 0.5 *
+        (f_rocky   + eps) ** 0.3 *
+        (f_esi     + eps) ** 0.2
+    )
 
-    # Store internal components for diagnostics ONLY (not ML features)
+    # ── Step 2: Tiny diversity factors ────────────────────────────────────────
+    # Eccentricity: low eccentricity = more stable orbit = better
+    ecc   = df["pl_orbeccen"].fillna(0.3).values.clip(0, 1)
+    f_ecc = 1.0 - ecc                             # 1.0 = circular, 0.0 = e=1
+
+    # Metallicity: solar-like [Fe/H] preferred (peak at 0.0 dex)
+    met   = df["st_met"].fillna(0.0).values
+    f_met = np.exp(-0.5 * (met / 0.5) ** 2)       # Gaussian, sigma=0.5 dex
+
+    # Stellar age: mature but not dying (peak ~5 Gyr, sigma=3 Gyr)
+    age   = df["st_age"].fillna(5.0).values.clip(0, 13)
+    f_age = np.exp(-0.5 * ((age - 5.0) / 3.0) ** 2)
+
+    P_astro = P_astro + 0.02 * f_ecc + 0.02 * f_met + 0.01 * f_age
+
+    # ── Step 3: Blend in detectability (15%) ──────────────────────────────────
+    D       = df["detectability"].fillna(0.0).values
+    P_final = 0.85 * P_astro + 0.15 * D
+
+    # ── Step 4: Quantile normalize to uniform [0,1] ───────────────────────────
+    P_arr = P_final.reshape(-1, 1)
+    qt    = QuantileTransformer(output_distribution="uniform", random_state=42)
+    P_norm = qt.fit_transform(P_arr).flatten()
+
+    df["priority_score"] = np.clip(P_norm, 0.0, 1.0)
+
+    # Diagnostics only — NOT ML features
     df["_hz_factor_diag"] = f_thermal
     df["_esi_diag"]       = f_esi
     df["_rocky_diag"]     = f_rocky
+    df["_P_astro_raw"]    = P_astro
 
-    n_high = int((df["priority_score"] >= 0.3).sum())
-    print(f"[Label] Priority score computed. {n_high:,} planets with score >= 0.3")
+    n_high = int((df["priority_score"] >= 0.5).sum())
+    print(f"[Label] Priority score v2.1 computed (quantile-normalised).")
+    print(f"        {n_high:,} planets in top 50% | mean={P_norm.mean():.4f} | std={P_norm.std():.4f}")
     return df
+
 
 
 # =============================================================================
