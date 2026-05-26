@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Large raw data (re-downloadable from NASA)
+data/exoplanets_raw.csv
+
+# Keep processed data and ranking (results)
+!data/exoplanets_processed.csv
+!data/final_priority_ranking.csv
+!data/static_priority_ranking.csv
+
+# Models (optional - uncomment to exclude if too large)
+# models/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
