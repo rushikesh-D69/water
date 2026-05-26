@@ -6,10 +6,13 @@ Stage 2 Evaluation Metrics + Comparison Engine
 Metrics:
   1. Cumulative Scientific Gain     — total knowledge acquired per round
   2. Telescope Utilization          — obs_time / total_time
-  3. Regret@K                       — vs oracle scheduler
+  3. Regret@K vs Oracle             — absolute regret vs OracleScheduler upper bound
   4. Observation Efficiency         — Gain / Cost per round
   5. Uncertainty Reduction Rate     — delta_sigma / round
   6. Exploration Ratio              — unique targets / total budget
+  7. Campaign Diversity Score       — parameter-space coverage across 5 dimensions
+                                      (stellar type, temperature, orbital period,
+                                       planet mass, system distance)
 
 Also: comparison tables, convergence plots, scheduler ranking.
 """
@@ -38,6 +41,7 @@ SCHEDULER_COLORS = {
     "Detectability Greedy":      PINK,
     "Uncertainty Greedy":        BLUE,
     "Adaptive Scheduler":        ACCENT,
+    "Oracle":                    "#ffffff",   # white — theoretical upper bound
 }
 
 PLOTS_DIR = Path(__file__).resolve().parent.parent / "plots"
@@ -103,12 +107,110 @@ def compute_exploration_ratio(logs_df: pd.DataFrame, n_planets: int) -> pd.Serie
     return (unique_per_round / (cumulative_budget + 1e-6)).clip(0, 1)
 
 
-def build_comparison_table(results: Dict[str, dict], n_rounds: int, k_per_round: int) -> pd.DataFrame:
+def compute_campaign_diversity(
+    observed_indices: list,
+    df:               "pd.DataFrame",
+) -> dict:
+    """
+    Campaign Diversity Score: measures parameter-space coverage of selected planets.
+
+    Computes diversity across 5 astrophysical dimensions:
+      1. Stellar Type Entropy  : Shannon entropy of spectral class distribution
+      2. Temperature Range     : std(T_eq) / max(T_eq) for observed planets
+      3. Orbital Period Range  : std(log P_orb) / mean(log P_orb)
+      4. Planet Mass Range     : std(log M_p) / mean(log M_p)
+      5. Distance Coverage     : std(d_sys) / median(d_sys)
+
+    Combined Diversity Score = mean of all 5 normalised diversity dimensions.
+
+    Higher score = scheduler explored wider parameter space.
+    Low score = scheduler clustered in one region (exploitation pathology).
+
+    Parameters
+    ----------
+    observed_indices : list of int  — planet indices observed across full campaign
+    df               : pd.DataFrame  — full processed planet dataframe
+
+    Returns
+    -------
+    dict with individual dimension scores and combined diversity score
+    """
+    if not observed_indices:
+        return {"diversity_score": 0.0}
+
+    obs = df.iloc[list(observed_indices)].copy()
+
+    scores = {}
+
+    # 1. Stellar type entropy
+    if "spectral_class" in obs.columns:
+        counts  = obs["spectral_class"].value_counts(normalize=True)
+        entropy = float(-np.sum(counts * np.log(counts + 1e-10)))
+        max_ent = np.log(7.0)   # 7 spectral types
+        scores["stellar_type_entropy"] = float(np.clip(entropy / max_ent, 0, 1))
+    else:
+        scores["stellar_type_entropy"] = 0.0
+
+    # 2. Equilibrium temperature diversity
+    teq = obs["pl_eqt"].dropna().values
+    if len(teq) > 1:
+        scores["temperature_diversity"] = float(
+            np.clip(np.std(teq) / (np.max(teq) + 1e-6), 0, 1)
+        )
+    else:
+        scores["temperature_diversity"] = 0.0
+
+    # 3. Orbital period diversity (log scale)
+    per = obs["pl_orbper"].dropna().values
+    per = per[per > 0]
+    if len(per) > 1:
+        log_per = np.log1p(per)
+        scores["orbital_diversity"] = float(
+            np.clip(np.std(log_per) / (np.mean(log_per) + 1e-6), 0, 1)
+        )
+    else:
+        scores["orbital_diversity"] = 0.0
+
+    # 4. Planet mass diversity (log scale)
+    mass = obs["pl_bmasse"].dropna().values
+    mass = mass[mass > 0]
+    if len(mass) > 1:
+        log_mass = np.log1p(mass)
+        scores["mass_diversity"] = float(
+            np.clip(np.std(log_mass) / (np.mean(log_mass) + 1e-6), 0, 1)
+        )
+    else:
+        scores["mass_diversity"] = 0.0
+
+    # 5. System distance coverage
+    dist = obs["sy_dist"].dropna().values
+    dist = dist[dist > 0]
+    if len(dist) > 1:
+        scores["distance_coverage"] = float(
+            np.clip(np.std(dist) / (np.median(dist) + 1e-6), 0, 1)
+        )
+    else:
+        scores["distance_coverage"] = 0.0
+
+    scores["diversity_score"] = float(np.mean(list(scores.values())))
+    return scores
+
+
+def build_comparison_table(
+    results:   Dict[str, dict],
+    n_rounds:  int,
+    k_per_round: int,
+    df:        "pd.DataFrame" = None,
+    oracle_cum_gain: float = None,
+) -> pd.DataFrame:
     """
     Build a summary comparison table across all schedulers.
+    Uses OracleScheduler cumulative gain for regret if available.
     """
     rows = []
-    max_gain = max(r["cumulative_gain"] for r in results.values())
+    # Use Oracle gain if provided, else use best scheduler gain
+    if oracle_cum_gain is None:
+        oracle_cum_gain = max(r["cumulative_gain"] for r in results.values())
 
     for name, res in results.items():
         logs = res["logs_df"]
@@ -118,13 +220,22 @@ def build_comparison_table(results: Dict[str, dict], n_rounds: int, k_per_round:
         eff        = float(compute_observation_efficiency(logs).mean()) if not logs.empty else 0.0
         unc_rate   = compute_uncertainty_reduction_rate(obs)
         unc_mean   = float(unc_rate["mean_sigma_reduction"].mean()) if not unc_rate.empty else 0.0
-        regret_fin = float(compute_regret(logs, max_gain).iloc[-1]) if not logs.empty else 1.0
+        regret_fin = float(compute_regret(logs, oracle_cum_gain).iloc[-1]) if not logs.empty else 1.0
         final_gain = res["cumulative_gain"]
+
+        # Diversity score
+        if df is not None and not obs.empty and "planet_idx" in obs.columns:
+            obs_idx = obs["planet_idx"].unique().tolist()
+            div     = compute_campaign_diversity(obs_idx, df)
+            div_score = round(div["diversity_score"], 4)
+        else:
+            div_score = 0.0
 
         rows.append({
             "Scheduler":               name,
             "Cum. Sci. Gain":          round(final_gain, 4),
-            "Regret (final)":          round(regret_fin, 4),
+            "Regret vs Oracle":        round(regret_fin, 4),
+            "Diversity Score":         div_score,
             "Telescope Utilization":   round(util_mean, 3),
             "Obs. Efficiency":         round(eff, 4),
             "Mean sigma Reduction":    round(unc_mean, 4),
@@ -132,9 +243,9 @@ def build_comparison_table(results: Dict[str, dict], n_rounds: int, k_per_round:
             "Total Hrs Used":          round(res["total_time_used"], 1),
         })
 
-    df = pd.DataFrame(rows).sort_values("Cum. Sci. Gain", ascending=False).reset_index(drop=True)
-    df.insert(0, "Rank", range(1, len(df) + 1))
-    return df
+    df_out = pd.DataFrame(rows).sort_values("Cum. Sci. Gain", ascending=False).reset_index(drop=True)
+    df_out.insert(0, "Rank", range(1, len(df_out) + 1))
+    return df_out
 
 
 # =============================================================================
@@ -253,29 +364,98 @@ def plot_weather_sequence(weather_history: List[float]):
     print(f"[Plot] Saved -> {out}")
 
 
-def plot_regret(results: Dict[str, dict]):
-    """Regret (vs best scheduler) per round."""
+def plot_regret(results: Dict[str, dict], oracle_cum_gain: float = None):
+    """Regret vs Oracle (or best scheduler) per round."""
     fig, ax = plt.subplots(figsize=(12, 5))
     fig.patch.set_facecolor(DARK_BG)
-    _style_ax(ax, "Regret vs Best Scheduler per Round", "Round", "Regret")
 
-    max_gain = max(r["cumulative_gain"] for r in results.values())
+    if oracle_cum_gain is None:
+        oracle_cum_gain = max(r["cumulative_gain"] for r in results.values())
+        title = "Regret vs Best Scheduler per Round"
+    else:
+        title = "Regret vs Oracle (Perfect Knowledge) per Round"
+
+    _style_ax(ax, title, "Round", "Regret")
 
     for name, res in results.items():
         logs   = res["logs_df"]
         color  = SCHEDULER_COLORS.get(name, TEXT)
         lw     = 2.5 if name == "Adaptive Scheduler" else 1.5
-        if logs.empty or name == "Adaptive Scheduler":
+        if logs.empty or name == "Oracle":
             continue
-        regret = compute_regret(logs, max_gain)
-        ax.plot(logs["round"], regret, color=color, lw=lw, ls="--", label=name)
+        regret = compute_regret(logs, oracle_cum_gain)
+        ls = "-" if name == "Adaptive Scheduler" else "--"
+        ax.plot(logs["round"], regret, color=color, lw=lw, ls=ls, label=name)
 
-    ax.axhline(0, color=ACCENT, lw=2, label="Adaptive Scheduler (oracle reference)")
+    ax.axhline(0, color="#ffffff", lw=1.5, ls=":", alpha=0.6, label="Oracle (upper bound)")
     ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
     ax.grid(axis="y", color="#30363d", alpha=0.4)
 
     plt.tight_layout()
     out = PLOTS_DIR / "s2_regret.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
+    plt.close(fig)
+    print(f"[Plot] Saved -> {out}")
+
+
+def plot_diversity(diversity_scores: Dict[str, dict]):
+    """
+    Radar/bar chart of Campaign Diversity Scores across schedulers.
+    Shows 5 dimensions: stellar type, temperature, orbital, mass, distance.
+    """
+    dims = ["stellar_type_entropy", "temperature_diversity",
+            "orbital_diversity", "mass_diversity", "distance_coverage"]
+    labels = ["Stellar Type\nEntropy", "Temperature\nDiversity",
+              "Orbital\nDiversity", "Mass\nDiversity", "Distance\nCoverage"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig.patch.set_facecolor(DARK_BG)
+
+    # Left: grouped bar chart
+    ax = axes[0]
+    ax.set_facecolor(PANEL)
+    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
+    ax.tick_params(colors=MUTED)
+
+    x      = np.arange(len(dims))
+    n_sched = len(diversity_scores)
+    width   = 0.8 / n_sched
+
+    for i, (name, scores) in enumerate(diversity_scores.items()):
+        color  = SCHEDULER_COLORS.get(name, TEXT)
+        vals   = [scores.get(d, 0.0) for d in dims]
+        offset = (i - n_sched / 2 + 0.5) * width
+        ax.bar(x + offset, vals, width * 0.9, label=name, color=color, alpha=0.85)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, color=TEXT, fontsize=8)
+    ax.set_ylim(0, 1.0)
+    ax.set_title("Campaign Diversity: 5-Dimensional Coverage", color=TEXT, fontsize=11)
+    ax.set_ylabel("Diversity Score [0,1]", color=TEXT)
+    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT, fontsize=8)
+    ax.grid(axis="y", color="#30363d", alpha=0.3)
+
+    # Right: overall diversity score bar
+    ax2 = axes[1]
+    ax2.set_facecolor(PANEL)
+    for sp in ax2.spines.values(): sp.set_edgecolor("#30363d")
+    ax2.tick_params(colors=MUTED)
+
+    names  = list(diversity_scores.keys())
+    totals = [diversity_scores[n].get("diversity_score", 0.0) for n in names]
+    colors = [SCHEDULER_COLORS.get(n, TEXT) for n in names]
+    bars   = ax2.barh(names, totals, color=colors, alpha=0.85)
+    for bar, val in zip(bars, totals):
+        ax2.text(val + 0.01, bar.get_y() + bar.get_height() / 2,
+                 f"{val:.3f}", va="center", color=TEXT, fontsize=9)
+    ax2.set_xlim(0, 1.1)
+    ax2.set_title("Overall Campaign Diversity Score", color=TEXT, fontsize=11)
+    ax2.set_xlabel("Diversity Score [0,1]\n(higher = wider parameter-space coverage)", color=TEXT)
+    ax2.tick_params(colors=TEXT)
+    ax2.grid(axis="x", color="#30363d", alpha=0.3)
+
+    plt.tight_layout()
+    out = PLOTS_DIR / "s2_diversity.png"
     fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
     plt.close(fig)
     print(f"[Plot] Saved -> {out}")
@@ -310,38 +490,56 @@ def plot_observation_efficiency(results: Dict[str, dict]):
 
 
 def run_full_evaluation(
-    results:     Dict[str, dict],
-    n_rounds:    int = 30,
-    k_per_round: int = 10,
-    n_planets:   int = 5522,
+    results:         Dict[str, dict],
+    n_rounds:        int = 30,
+    k_per_round:     int = 10,
+    n_planets:       int = 5522,
     weather_history: List[float] = None,
+    df:              "pd.DataFrame" = None,
+    oracle_cum_gain: float = None,
 ) -> pd.DataFrame:
     """
     Run all evaluation metrics and generate all plots.
 
     Parameters
     ----------
-    results      : dict  output from run_campaign() for each scheduler
-    n_rounds     : int
-    k_per_round  : int
-    n_planets    : int   total planet pool size
-    weather_history : list of weather values across rounds
+    results          : dict  output from run_campaign() for each scheduler
+    n_rounds         : int
+    k_per_round      : int
+    n_planets        : int   total planet pool size
+    weather_history  : list  weather per round (for AR1 plot)
+    df               : pd.DataFrame  planet dataframe (for diversity metric)
+    oracle_cum_gain  : float  OracleScheduler cumulative gain (for regret)
 
     Returns
     -------
     comparison_df : pd.DataFrame  summary table
     """
     print("\n[Eval] Computing metrics ...")
-    comparison_df = build_comparison_table(results, n_rounds, k_per_round)
+    comparison_df = build_comparison_table(
+        results, n_rounds, k_per_round,
+        df=df, oracle_cum_gain=oracle_cum_gain
+    )
 
     print("\n[Eval] Generating plots ...")
     plot_cumulative_gain(results)
     plot_uncertainty_evolution(results)
     plot_weight_decay(n_rounds)
-    plot_regret(results)
+    plot_regret(results, oracle_cum_gain=oracle_cum_gain)
     plot_observation_efficiency(results)
     if weather_history:
         plot_weather_sequence(weather_history)
+
+    # Campaign diversity
+    if df is not None:
+        diversity_scores = {}
+        for name, res in results.items():
+            obs = res["obs_history_df"]
+            if not obs.empty and "planet_idx" in obs.columns:
+                obs_idx = obs["planet_idx"].unique().tolist()
+                diversity_scores[name] = compute_campaign_diversity(obs_idx, df)
+        if diversity_scores:
+            plot_diversity(diversity_scores)
 
     print("\n[Eval] Scheduler Comparison:")
     print(comparison_df.to_string(index=False))

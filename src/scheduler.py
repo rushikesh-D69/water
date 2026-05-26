@@ -3,11 +3,19 @@ scheduler.py — Stage 2
 ========================
 Scheduler Algorithms + Adaptive Reprioritization Loop
 
-Implements 4 schedulers sharing a common interface:
+Implements 5 schedulers sharing a common interface:
   1. StaticPriorityScheduler       — Baseline 1: always top priority_score
   2. DetectabilityGreedyScheduler  — Baseline 2: always top detectability
   3. UncertaintyGreedyScheduler    — Baseline 3: always highest uncertainty
   4. AdaptiveScheduler             — OUR METHOD: Utility = (Gain × F) / Cost
+  5. OracleScheduler               — UPPER BOUND: perfect future knowledge
+
+OracleScheduler (academic upgrade):
+  Has access to the TRUE priority scores (ground truth labels).
+  Selects the globally optimal set every round given constraints.
+  Used exclusively to compute regret of all other schedulers:
+    Regret@round = (Oracle_cum_gain - Scheduler_cum_gain) / Oracle_cum_gain
+  This makes the regret metric rigorously meaningful.
 
 Scientific Gain formula (upgraded, Issue 3):
   Gain_i = α_t × U_i + β_t × P_i + γ × D_i
@@ -392,6 +400,56 @@ class AdaptiveScheduler(BaseScheduler):
         return selected, sel_costs
 
 
+# ── Oracle Scheduler — perfect future knowledge upper bound ──────────────────
+class OracleScheduler(BaseScheduler):
+    """
+    Oracle Scheduler: selects the globally optimal subset every round.
+
+    Has access to the TRUE priority scores (ground truth labels from Stage 1
+    weak supervision) — knowledge unavailable to all real schedulers.
+
+    Used ONLY as an upper bound for regret computation:
+      Regret@t = (Oracle_cum_gain_t - Scheduler_cum_gain_t) / Oracle_cum_gain_t
+
+    This makes the comparison academically rigorous. Without an oracle,
+    regret is computed relative to the best observed scheduler (weaker claim).
+    With an oracle, regret is an absolute measure of information loss.
+
+    Parameters
+    ----------
+    df              : pd.DataFrame
+    true_priorities : np.ndarray  — ground truth priority_score from Stage 1
+    """
+
+    def __init__(self, df: pd.DataFrame, true_priorities: np.ndarray):
+        super().__init__("Oracle", df)
+        self.true_priorities = true_priorities.copy()
+
+    def select(self, simulator, constraint_engine, round_number, k, observed_set):
+        cand_idx, feas, costs = self._feasible_candidates(constraint_engine, observed_set)
+        if len(cand_idx) == 0:
+            return [], []
+
+        # Oracle scores: true priority × feasibility / cost
+        # This is the optimal achievable utility given constraint information
+        true_p  = self.true_priorities[cand_idx]
+        oracle_utility = (true_p * feas) / (costs + 1e-6)
+
+        order   = np.argsort(oracle_utility)[::-1]
+        ranked  = cand_idx[order]
+        r_costs = costs[order]
+
+        time_before = constraint_engine.time_budget
+        selected, sel_costs = self._apply_budget(ranked, r_costs, constraint_engine, k)
+
+        gains_arr = simulator.sigma[cand_idx] * simulator.detectability[cand_idx]
+        log = self._build_log(round_number, selected, sel_costs, simulator,
+                               constraint_engine, gains_arr, feas, cand_idx,
+                               0.0, 0.0, 0.0, time_before)
+        self.logs.append(log)
+        return selected, sel_costs
+
+
 # ── Campaign Runner ───────────────────────────────────────────────────────────
 def run_campaign(
     scheduler:          BaseScheduler,
@@ -419,7 +477,8 @@ def run_campaign(
     -------
     dict with logs, observation history, final state
     """
-    observed_set = set()
+    observed_set    = set()
+    weather_history = []
 
     if verbose:
         print(f"\n{'='*60}")
@@ -448,6 +507,8 @@ def run_campaign(
             )
             observed_set.update(selected)
 
+        weather_history.append(cs["weather"])
+
         if verbose and rnd % 5 == 0:
             log = scheduler.logs[-1] if scheduler.logs else None
             gain_str = f"{log.cum_sci_gain:.4f}" if log else "N/A"
@@ -470,4 +531,5 @@ def run_campaign(
         "n_observed":       len(observed_set),
         "cumulative_gain":  scheduler.cumulative_gain,
         "total_time_used":  scheduler.total_time_used,
+        "weather_history":  weather_history,
     }
