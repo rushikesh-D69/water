@@ -179,10 +179,12 @@ class BaseScheduler(ABC):
 
         sigma_before = float(np.mean([simulator.sigma[i] for i in selected])) if selected else 0.0
 
-        round_gain = sum(
-            simulator.history[-1 * len(selected) + j].sigma_before * simulator.history[-1 * len(selected) + j].detectability
-            for j in range(len(selected))
-        ) if simulator.history and len(selected) > 0 else 0.0
+        # Round gain = sum of (sigma × detectability) for selected planets
+        # Computed from current simulator state (before observations update it)
+        round_gain = float(sum(
+            simulator.sigma[i] * simulator.detectability[i]
+            for i in selected
+        )) if selected else 0.0
 
         self.cumulative_gain += round_gain
         time_used = time_before - constraint_engine.time_budget
