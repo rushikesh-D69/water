@@ -177,20 +177,25 @@ class BaseScheduler(ABC):
             g * f / (c + 1e-6) for g, f, c in zip(sel_gains, sel_feas, sel_costs)
         ]
 
-        sigma_before = float(np.mean([simulator.sigma[i] for i in selected])) if selected else 0.0
-
-        # Round gain = sum of (sigma × detectability) for selected planets
-        # Computed from current simulator state (before observations update it)
-        round_gain = float(sum(
-            simulator.sigma[i] * simulator.detectability[i]
-            for i in selected
-        )) if selected else 0.0
+        # ── Use numpy array indexing throughout — avoids list/Series ambiguity ──
+        if selected:
+            sel_idx       = np.array(selected, dtype=np.intp)
+            sig_sel       = simulator.sigma[sel_idx]
+            det_sel       = simulator.detectability[sel_idx]
+            mu_sel        = simulator.mu[sel_idx]
+            round_gain    = float(np.dot(sig_sel, det_sel))
+            sigma_before  = float(np.mean(sig_sel))
+            sigma_after   = sigma_before
+            mean_priority = float(np.mean(mu_sel))
+        else:
+            round_gain    = 0.0
+            sigma_before  = 0.0
+            sigma_after   = 0.0
+            mean_priority = 0.0
 
         self.cumulative_gain += round_gain
         time_used = time_before - constraint_engine.time_budget
         self.total_time_used += time_used
-
-        sigma_after = float(np.mean([simulator.sigma[i] for i in selected])) if selected else 0.0
 
         return RoundLog(
             round_number      = round_number,
@@ -208,7 +213,7 @@ class BaseScheduler(ABC):
             beta_t            = round(beta_t, 4),
             gamma             = round(gamma, 4),
             cum_sci_gain      = round(self.cumulative_gain, 4),
-            mean_priority     = float(np.mean(simulator.mu[selected])) if selected else 0.0,
+            mean_priority     = mean_priority,
             mean_sigma_before = sigma_before,
             mean_sigma_after  = sigma_after,
         )

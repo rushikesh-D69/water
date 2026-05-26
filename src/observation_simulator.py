@@ -69,9 +69,9 @@ class ObservationSimulator:
         self.n_planets      = len(df)
         self.rng            = np.random.default_rng(seed)
 
-        # Mutable state (updated after each observation)
-        self.mu    = initial_means.copy().astype(float)
-        self.sigma = initial_sigmas.copy().astype(float)
+        # Mutable state — always numpy float64 regardless of input type
+        self.mu    = np.asarray(initial_means,  dtype=np.float64).ravel().copy()
+        self.sigma = np.asarray(initial_sigmas, dtype=np.float64).ravel().copy()
 
         # Track how many times each planet has been observed
         self.obs_count: np.ndarray = np.zeros(self.n_planets, dtype=int)
@@ -80,8 +80,8 @@ class ObservationSimulator:
         self.history: List[ObservationRecord] = []
 
         # Pre-extract stable physical quantities
-        self.detectability = df["detectability"].fillna(0.1).values
-        self.snr_proxy     = df["snr_proxy"].fillna(0.01).values
+        self.detectability = np.asarray(df["detectability"].fillna(0.1).values, dtype=np.float64)
+        self.snr_proxy     = np.asarray(df["snr_proxy"].fillna(0.01).values,    dtype=np.float64)
         snr_99             = np.percentile(self.snr_proxy[self.snr_proxy > 0], 99)
         self.snr_norm      = np.clip(self.snr_proxy / (snr_99 + 1e-8), 0.01, 1.0)
 
