@@ -201,7 +201,7 @@ class BaseScheduler(ABC):
             costs             = sel_costs,
             weather           = constraint_engine.weather,
             time_used         = round(time_used, 2),
-            time_budget       = TELESCOPE_HRS_PER_NIGHT := 8.0,
+            time_budget       = 8.0,
             alpha_t           = round(alpha_t, 4),
             beta_t            = round(beta_t, 4),
             gamma             = round(gamma, 4),
