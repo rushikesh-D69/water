@@ -26,3 +26,21 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Report compiled outputs (excluded per project convention)
+report/*.aux
+report/*.bbl
+report/*.blg
+report/*.log
+report/*.out
+report/*.pdf
+report/*.toc
+
+# Stage 3 RL — SB3 Monitor logs and TensorBoard
+logs/
+tb_logs/
+*.monitor.csv
+
+# Stage 3 RL — Intermediate PPO checkpoints (keep final only)
+models/ppo_phase1.zip
+models/ppo_phase2.zip

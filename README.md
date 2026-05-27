@@ -315,9 +315,84 @@ water/
 |-------|--------|-------------|
 | **Stage 1** | ✅ Complete | Static ML Ranking — 4 models, SHAP, uncertainty, temporal simulation |
 | **Stage 2** | ✅ Complete | Adaptive Scheduling — 5 schedulers, Oracle regret, Campaign Diversity, 3D Dashboard |
-| **Stage 3** | Planned | RL Scheduler — PPO/DQN (Stable-Baselines3), MDP formulation |
+| **Stage 3** | 🔄 In Progress | RL Scheduler — MaskablePPO + BC pretraining + LinUCB Bandit + Curriculum |
 
 ---
+
+## Stage 3 — Reinforcement Learning Autonomous Scheduler
+
+### Environment: `ExoplanetSchedulingEnv(gym.Env)`
+
+The RL environment wraps the entire Stage 2 simulation stack inside a standard Gymnasium interface compatible with Stable-Baselines3.
+
+**State Space** (flat Box, 6×N + 10 dimensions):
+| Feature | Description |
+|---|---|
+| `priority_mu` × N | Current estimated priority scores |
+| `uncertainty_sigma` × N | Current prediction uncertainties |
+| `detectability` × N | Physical detectability scores |
+| `cost_norm` × N | Normalised observation costs |
+| `observed_flag` × N | Binary: already observed this campaign? |
+| `visibility_flag` × N | Binary: currently visible this round? |
+| `weather` | AR(1) weather quality [0,1] |
+| `budget_remaining` | Remaining hours / max hours |
+| `round_frac` | Round progress fraction |
+| `diversity_state[0..5]` | Stellar-type coverage fractions |
+
+**Action Space**: `Discrete(N_CANDS)` — select one target from the pre-filtered shortlist.
+
+**Candidate Pre-Filtering**: 5,522 → 100 planets via composite score:
+```
+shortlist_score = 0.40 × priority + 0.35 × uncertainty + 0.25 × detectability
+```
+
+### Reward Function
+
+$$R_t = 0.35 \cdot G_{\text{norm}} + 0.25 \cdot D_{\text{norm}} + 0.20 \cdot E_{\text{norm}} + 0.20 \cdot P_{\text{norm}}$$
+
+Each component normalized **independently** via RunningMeanStd (prevents dominance). Diversity uses **EMA-smoothed entropy increment** for training stability.
+
+| Component | Formula |
+|---|---|
+| G (Information Gain) | `(σ_before − σ_after) × detectability` |
+| D (Diversity) | EMA-smoothed stellar-type entropy increment |
+| E (Efficiency) | `G / cost_hrs` |
+| P (Priority Coverage) | True ground-truth priority of selected planet |
+
+**Penalties**: Over-budget (−0.50), Redundant re-obs (−0.20), Low detectability (−0.10), Invalid action (−0.30)
+
+### Algorithms
+
+| Algorithm | Type | Key Feature |
+|---|---|---|
+| **MaskablePPO** | Deep RL | Action masking + entropy regularization + BC warm-start |
+| **LinUCB Bandit** | Contextual Bandit | Interpretable, sample-efficient, closed-form update |
+
+### Curriculum Training Protocol
+
+```
+Phase 1: 10-planet env   → 10k steps  (fast convergence, reward structure learning)
+Phase 2: 50-planet env   → 30k steps  (intermediate complexity)
+Phase 3: 100-planet env  → 60k steps  (full; Behavior Cloning warm-start from Adaptive Scheduler)
+```
+
+**Behavior Cloning**: PPO policy pre-trained on AdaptiveScheduler trajectories (imitation → RL fine-tuning). Massively stabilizes early-stage learning.
+
+### Stage 3 RL Visualizations (7 plots)
+
+| Plot | File | Description |
+|---|---|---|
+| Training Reward Curve | `s3_training_reward_curve.png` | Episode reward + running mean vs episodes |
+| Policy Heatmap | `s3_policy_heatmap.png` | T_eq × Radius space colored by RL selection frequency |
+| Reward Decomposition | `s3_reward_decomposition.png` | Stacked area: G/D/E/P components per round |
+| Exploration Timeline | `s3_exploration_timeline.png` | New targets vs revisits per round |
+| Extended Pareto | `s3_pareto_extended.png` | Stage 2 Pareto + PPO + LinUCB nodes |
+| Generalization | `s3_generalization.png` | Robustness across 4 weather seeds |
+| State t-SNE | `s3_state_tsne.png` | State embeddings colored by reward quartile |
+
+---
+
+
 
 ## Running on Google Colab
 
