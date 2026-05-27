@@ -4,13 +4,13 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-rushikesh--D69%2Fwater-22b5a0?style=flat-square&logo=github)](https://github.com/rushikesh-D69/water)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python)](https://python.org)
-[![Stage](https://img.shields.io/badge/Status-Journal--Ready-success?style=flat-square)](#roadmap)
+
 [![Dashboard](https://img.shields.io/badge/Dashboard-3D%20Interactive-blueviolet?style=flat-square)](#interactive-3d-web-dashboard)
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?style=flat-square&logo=streamlit)](#companion-streamlit-dashboard)
 
 ---
 
-## 🎯 Research Positioning
+##  Research Positioning
 
 The characterization of exoplanet atmospheres via transit spectroscopy is one of the most photon-expensive frontiers in modern astrophysics. flag-ship space observatories (e.g., the James Webb Space Telescope and the future Habitable Worlds Observatory) operate under severe resource constraints, allocating only a fraction of their lifespans to spectroscopic surveys. 
 
@@ -54,7 +54,7 @@ flowchart TD
 
 ---
 
-## 🔄 Scheduler Decision Flow
+##  Scheduler Decision Flow
 
 At each scheduling interval $t$, the telescope functions as an active decision agent that cycles through constraint checking, heuristic utility sorting, and database updating:
 
@@ -86,7 +86,7 @@ sequenceDiagram
 
 ---
 
-## 📊 Empirical Evaluation & Results
+## Empirical Evaluation & Results
 
 ### 1. machine learning Prioritization (Stage 1)
 We evaluated the ensemble models on a held-out test set (80/20 split) using 5-fold cross-validation. Decision-tree ensembles accurately recover the ground-truth scientific ranking from raw physical parameters without data leakage, with **LightGBM** achieving the highest ranking accuracy and recovering **99%** of the maximum possible scientific utility in the top-50 selection (Regret@50 $= 0.010$):
@@ -146,7 +146,7 @@ To visualize active campaign execution, we developed a state-of-the-art **Intera
 
 ---
 
-## 📂 Repository Directory Layout
+##  Repository Directory Layout
 
 The repository is structured logically to separate source logic, campaign data, visual plots, and documentation:
 
@@ -235,7 +235,7 @@ Our pipeline utilizes real exoplanet measurements compiled by the **NASA Exoplan
 
 ---
 
-## 📖 Key References
+##  Key References
 
 1.  **Kopparapu et al. (2013, 2014):** *Habitable Zones Around Main-Sequence Stars: New Estimates*. Circumstellar habitable zone effective flux boundary formulations.
 2.  **Schulze-Makuch et al. (2011):** *A Two-Tiered Complexity/Habitability Classification Scheme for Exoplanets*. Earth Similarity Index (ESI) formulation.
