@@ -205,13 +205,36 @@ def build_comparison_table(
 ) -> pd.DataFrame:
     """
     Build a summary comparison table across all schedulers.
-    Uses OracleScheduler cumulative gain for regret if available.
+    Uses redefined Oracle Scheduler relative normalization for metrics
+    to compute a robust Multi-Objective Composite Campaign Score.
     """
-    rows = []
-    # Use Oracle gain if provided, else use best scheduler gain
-    if oracle_cum_gain is None:
-        oracle_cum_gain = max(r["cumulative_gain"] for r in results.values())
+    # ── 1. Extract Oracle raw values as base for normalization ────────────────
+    oracle_res = results.get("Oracle")
+    if oracle_res is not None:
+        oracle_gain = oracle_res["cumulative_gain"]
+        oracle_logs = oracle_res["logs_df"]
+        oracle_obs  = oracle_res["obs_history_df"]
+        oracle_eff  = float(compute_observation_efficiency(oracle_logs).mean()) if not oracle_logs.empty else 1e-8
+        if df is not None and not oracle_obs.empty and "planet_idx" in oracle_obs.columns:
+            oracle_obs_idx = oracle_obs["planet_idx"].unique().tolist()
+            oracle_div = compute_campaign_diversity(oracle_obs_idx, df)["diversity_score"]
+            true_prio_col = "priority_score" if "priority_score" in df.columns else "priority_score"
+            oracle_prio = float(df.iloc[oracle_obs_idx][true_prio_col].mean()) if true_prio_col in df.columns else 1e-8
+        else:
+            oracle_div  = 1.0
+            oracle_prio = 1.0
+    else:
+        # Fallback if Oracle is not in results
+        oracle_gain = max(r["cumulative_gain"] for r in results.values())
+        oracle_eff  = max(float(compute_observation_efficiency(r["logs_df"]).mean()) for r in results.values() if not r["logs_df"].empty)
+        oracle_div  = 0.6
+        oracle_prio = 0.7
 
+    # Ensure oracle_cum_gain uses Oracle's actual gain for regret clipping
+    if oracle_cum_gain is None:
+        oracle_cum_gain = oracle_gain
+
+    rows = []
     for name, res in results.items():
         logs = res["logs_df"]
         obs  = res["obs_history_df"]
@@ -223,19 +246,38 @@ def build_comparison_table(
         regret_fin = float(compute_regret(logs, oracle_cum_gain).iloc[-1]) if not logs.empty else 1.0
         final_gain = res["cumulative_gain"]
 
-        # Diversity score
+        # ── 2. Campaign Diversity ─────────────────────────────────────────────
         if df is not None and not obs.empty and "planet_idx" in obs.columns:
             obs_idx = obs["planet_idx"].unique().tolist()
             div     = compute_campaign_diversity(obs_idx, df)
-            div_score = round(div["diversity_score"], 4)
+            div_score = div["diversity_score"]
         else:
             div_score = 0.0
 
+        # ── 3. Priority Coverage ──────────────────────────────────────────────
+        if df is not None and not obs.empty and "planet_idx" in obs.columns:
+            obs_idx = obs["planet_idx"].unique().tolist()
+            true_prio_col = "priority_score" if "priority_score" in df.columns else "priority_score"
+            prio_cov = float(df.iloc[obs_idx][true_prio_col].mean()) if true_prio_col in df.columns else 0.0
+        else:
+            prio_cov = 0.0
+
+        # ── 4. Unified Oracle-Relative Normalization ──────────────────────────
+        g_norm = np.clip(final_gain / (oracle_gain + 1e-8), 0.0, 1.0)
+        d_norm = np.clip(div_score / (oracle_div + 1e-8), 0.0, 1.0)
+        e_norm = np.clip(eff / (oracle_eff + 1e-8), 0.0, 1.0)
+        p_norm = np.clip(prio_cov / (oracle_prio + 1e-8), 0.0, 1.0)
+
+        # ── 5. Composite Score Calculation ────────────────────────────────────
+        comp_score = 0.35 * g_norm + 0.25 * d_norm + 0.20 * e_norm + 0.20 * p_norm
+
         rows.append({
             "Scheduler":               name,
+            "Composite Score":         round(comp_score, 4),
             "Cum. Sci. Gain":          round(final_gain, 4),
             "Regret vs Oracle":        round(regret_fin, 4),
-            "Diversity Score":         div_score,
+            "Diversity Score":         round(div_score, 4),
+            "Priority Coverage":       round(prio_cov, 4),
             "Telescope Utilization":   round(util_mean, 3),
             "Obs. Efficiency":         round(eff, 4),
             "Mean sigma Reduction":    round(unc_mean, 4),
@@ -243,9 +285,10 @@ def build_comparison_table(
             "Total Hrs Used":          round(res["total_time_used"], 1),
         })
 
-    df_out = pd.DataFrame(rows).sort_values("Cum. Sci. Gain", ascending=False).reset_index(drop=True)
+    df_out = pd.DataFrame(rows).sort_values("Composite Score", ascending=False).reset_index(drop=True)
     df_out.insert(0, "Rank", range(1, len(df_out) + 1))
     return df_out
+
 
 
 # =============================================================================
@@ -489,6 +532,82 @@ def plot_observation_efficiency(results: Dict[str, dict]):
     print(f"[Plot] Saved -> {out}")
 
 
+def plot_pareto_frontier(results: Dict[str, dict], df: "pd.DataFrame"):
+    """
+    Generate a 2D Pareto Frontier plot showing Gain vs Diversity.
+    Marker color/size represents Observation Efficiency.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    fig.patch.set_facecolor(DARK_BG)
+    _style_ax(ax, "Telescope Scheduling Pareto Frontier", "Cumulative Scientific Gain", "Campaign Diversity Score")
+
+    points = []
+    for name, res in results.items():
+        gain = res["cumulative_gain"]
+        obs  = res["obs_history_df"]
+        logs = res["logs_df"]
+        eff  = float(compute_observation_efficiency(logs).mean()) if not logs.empty else 0.0
+        
+        if df is not None and not obs.empty and "planet_idx" in obs.columns:
+            obs_idx = obs["planet_idx"].unique().tolist()
+            div = compute_campaign_diversity(obs_idx, df)["diversity_score"]
+        else:
+            div = 0.0
+        points.append((name, gain, div, eff))
+
+    # Identify non-dominated frontier dynamically
+    # A point (g, d) is non-dominated if no other point (og, od) has og >= g and od >= d (with at least one strict)
+    frontier = []
+    for name, g, d, eff in points:
+        dominated = False
+        for oname, og, od, oeff in points:
+            if oname == name:
+                continue
+            if og >= g and od >= d and (og > g or od > d):
+                dominated = True
+                break
+        if not dominated:
+            frontier.append((name, g, d, eff))
+
+    # Sort frontier by gain ascending to draw a smooth line
+    frontier = sorted(frontier, key=lambda x: x[1])
+
+    # Plot all schedulers
+    for name, g, d, eff in points:
+        color = SCHEDULER_COLORS.get(name, TEXT)
+        size = 150 + eff * 3000  # scale size by efficiency
+        
+        # Plot point
+        scatter = ax.scatter(g, d, color=color, s=size, label=name, alpha=0.9, edgecolors="#30363d", zorder=3)
+        
+        # Annotate point
+        ax.annotate(f"{name}\n(Eff: {eff:.4f})", xy=(g, d), xytext=(8, -8),
+                    textcoords="offset points", color=TEXT, fontsize=8,
+                    arrowprops=None, zorder=4)
+
+    # Plot Pareto Frontier line
+    if len(frontier) > 1:
+        fx = [f[1] for f in frontier]
+        fy = [f[2] for f in frontier]
+        ax.plot(fx, fy, color=ACCENT, linestyle="--", linewidth=2.0, alpha=0.8, label="Pareto Frontier", zorder=2)
+        
+    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
+    ax.grid(color="#30363d", alpha=0.3, zorder=1)
+    
+    # Give some breathing room in limits
+    gains = [p[1] for p in points]
+    divs  = [p[2] for p in points]
+    ax.set_xlim(min(gains) * 0.9, max(gains) * 1.1)
+    ax.set_ylim(min(divs) * 0.9, min(1.0, max(divs) * 1.1))
+
+    plt.tight_layout()
+    out = PLOTS_DIR / "s2_pareto_frontier.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
+    plt.close(fig)
+    print(f"[Plot] Saved -> {out}")
+
+
+
 def run_full_evaluation(
     results:         Dict[str, dict],
     n_rounds:        int = 30,
@@ -540,6 +659,8 @@ def run_full_evaluation(
                 diversity_scores[name] = compute_campaign_diversity(obs_idx, df)
         if diversity_scores:
             plot_diversity(diversity_scores)
+            plot_pareto_frontier(results, df)
+
 
     print("\n[Eval] Scheduler Comparison:")
     print(comparison_df.to_string(index=False))

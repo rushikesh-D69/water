@@ -324,7 +324,7 @@ def panel_telescope_queue(df_ml, obs_df, comp_df):
                 if val >= 0.5: return "background-color: #f0a50022; color: #f0a500"
                 return "background-color: #c9ada722; color: #c9ada7"
 
-            styled = top_targets.style.applymap(
+            styled = top_targets.style.map(
                 color_priority, subset=["priority_score"]
             ).format({
                 "priority_score": "{:.4f}",
@@ -654,6 +654,9 @@ def panel_metrics_dashboard(comp_df, all_logs, selected_schedulers):
         st.markdown("#### Scheduler Comparison Table")
         def highlight_best(df):
             styles = pd.DataFrame("", index=df.index, columns=df.columns)
+            if "Composite Score" in df.columns:
+                best_idx = df["Composite Score"].astype(float).idxmax()
+                styles.loc[best_idx, "Composite Score"] = "background-color: #22b5a033; color: #22b5a0; font-weight: bold"
             if "Cum. Sci. Gain" in df.columns:
                 best_idx = df["Cum. Sci. Gain"].astype(float).idxmax()
                 styles.loc[best_idx, "Cum. Sci. Gain"] = "background-color: #22b5a033; color: #22b5a0; font-weight: bold"
@@ -663,6 +666,9 @@ def panel_metrics_dashboard(comp_df, all_logs, selected_schedulers):
             if "Diversity Score" in df.columns:
                 best_idx = df["Diversity Score"].astype(float).idxmax()
                 styles.loc[best_idx, "Diversity Score"] = "background-color: #f0a50033; color: #f0a500; font-weight: bold"
+            if "Priority Coverage" in df.columns:
+                best_idx = df["Priority Coverage"].astype(float).idxmax()
+                styles.loc[best_idx, "Priority Coverage"] = "background-color: #f0a50033; color: #f0a500; font-weight: bold"
             return styles
         st.dataframe(comp_df.style.apply(highlight_best, axis=None), use_container_width=True)
 

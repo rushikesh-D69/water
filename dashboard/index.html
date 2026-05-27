@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExoPlanet Scheduler — Stage 2 Engine</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-fontawesome/6.4.0/css/all.min.css">
+    
+    <!-- PapaParse for CSV loading -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- Plotly.js for interactive charts -->
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    
+    <!-- Chart.js for micro charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Three.js for interactive 3D planetarium -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Link to custom premium stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    
+    <!-- Background Starfield and Gradients -->
+    <div class="starfield"></div>
+    <div class="glow-orb blue"></div>
+    <div class="glow-orb teal"></div>
+    
+    <div class="app-container">
+        
+        <!-- Premium Navigation Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-satellite-dish brand-icon"></i>
+                <div class="brand-text">
+                    <h1>ExoPlanet</h1>
+                    <span>Stage 2 Scheduler</span>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-target="dashboard">
+                    <i class="fa-solid fa-chart-line"></i> Dashboard
+                </a>
+                <a href="#" class="nav-item" data-target="planetarium">
+                    <i class="fa-solid fa-globe"></i> 3D Planetarium
+                </a>
+                <a href="#" class="nav-item" data-target="timeline">
+                    <i class="fa-solid fa-timeline"></i> Timeline Gantt
+                </a>
+                <a href="#" class="nav-item" data-target="logs">
+                    <i class="fa-solid fa-list-check"></i> Scheduler Logs
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="sidebar-config">
+                    <h3>Simulation Parameters</h3>
+                    <div class="param-row"><span>Rounds:</span> <strong>30</strong></div>
+                    <div class="param-row"><span>Telescope Budget:</span> <strong>8 hrs/night</strong></div>
+                    <div class="param-row"><span>Weather model:</span> <strong>AR(1) ρ=0.65</strong></div>
+                    <div class="param-row"><span>Exploration Decay τ:</span> <strong>15 rounds</strong></div>
+                </div>
+                <a href="https://github.com/rushikesh-D69/water" target="_blank" class="github-link">
+                    <i class="fa-brands fa-github"></i> rushikesh-D69/water
+                </a>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Dynamic Scrubber Control Bar -->
+            <div class="playback-bar glass">
+                <div class="playback-controls">
+                    <button id="btn-play-pause" class="btn-primary" title="Play Simulation"><i class="fa-solid fa-play"></i> Play</button>
+                    <button id="btn-step-prev" class="btn-secondary" title="Previous Round"><i class="fa-solid fa-backward-step"></i></button>
+                    <button id="btn-step-next" class="btn-secondary" title="Next Round"><i class="fa-solid fa-forward-step"></i></button>
+                    <div class="round-display">Round <strong id="lbl-current-round" class="text-teal">30</strong>/30</div>
+                    <input type="range" id="round-slider" class="scrubber" min="1" max="30" value="30">
+                </div>
+                <div class="playback-config">
+                    <div class="toggle-group" id="telescope-mode-selector">
+                        <button class="btn-toggle active" data-mode="all"><i class="fa-solid fa-circle-nodes"></i> Coordinated</button>
+                        <button class="btn-toggle" data-mode="jwst"><i class="fa-solid fa-eye"></i> JWST</button>
+                        <button class="btn-toggle" data-mode="ground"><i class="fa-solid fa-mountain-sun"></i> Ground</button>
+                        <button class="btn-toggle" data-mode="tess"><i class="fa-solid fa-satellite"></i> TESS</button>
+                    </div>
+                    <button id="btn-sound-toggle" class="btn-secondary" title="Toggle Sound"><i class="fa-solid fa-volume-high"></i></button>
+                </div>
+            </div>
+
+            <!-- Dashboard View -->
+            <section id="dashboard" class="content-view active">
+                <header class="view-header">
+                    <div class="header-info">
+                        <h2>Campaign Overview</h2>
+                        <p>Adaptive mission optimization vs. single-objective baselines</p>
+                    </div>
+                    <div class="active-badge" id="telemetry-badge-status">
+                        <span class="pulse-dot"></span> Simulation Ready
+                    </div>
+                </header>
+                
+                <!-- Metrics Card Grid -->
+                <div class="metrics-grid">
+                    <div class="metric-card glass">
+                        <i class="fa-solid fa-award card-icon gold"></i>
+                        <div class="metric-data">
+                            <span class="value" id="val-composite">99.87%</span>
+                            <label>Adaptive Composite Score</label>
+                        </div>
+                    </div>
+                    <div class="metric-card glass">
+                        <i class="fa-solid fa-square-poll-vertical card-icon teal"></i>
+                        <div class="metric-data">
+                            <span class="value" id="val-gain">5.7872</span>
+                            <label>Cumulative Sci. Gain</label>
+                        </div>
+                    </div>
+                    <div class="metric-card glass">
+                        <i class="fa-solid fa-dna card-icon pink"></i>
+                        <div class="metric-data">
+                            <span class="value" id="val-diversity">0.5992</span>
+                            <label>Campaign Diversity</label>
+                        </div>
+                    </div>
+                    <div class="metric-card glass">
+                        <i class="fa-solid fa-circle-check card-icon blue"></i>
+                        <div class="metric-data">
+                            <span class="value" id="val-observed">237</span>
+                            <label>Unique Targets Observed</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Main Grid Layout -->
+                <div class="dashboard-grid">
+                    <!-- Left Column: Schedulers Table, Pareto Frontier, and Heatmap -->
+                    <div class="grid-col-8">
+                        <div class="panel glass">
+                            <h3 class="panel-title"><i class="fa-solid fa-table-list"></i> Campaign Leaderboard</h3>
+                            <div class="table-container">
+                                <table id="leaderboard-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Rank</th>
+                                            <th>Scheduler</th>
+                                            <th>Composite Score</th>
+                                            <th>Sci. Gain</th>
+                                            <th>Regret</th>
+                                            <th>Diversity</th>
+                                            <th>Priority Coverage</th>
+                                            <th>Observed</th>
+                                            <th>Total Hrs</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Populated dynamically via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <div class="panel glass">
+                            <div class="panel-header-tabs">
+                                <button class="tab-btn active" id="btn-tab-pareto"><i class="fa-solid fa-chart-line"></i> Dynamic Pareto Frontier</button>
+                                <button class="tab-btn" id="btn-tab-heatmap"><i class="fa-solid fa-fire"></i> Sci. Gain Heatmap</button>
+                            </div>
+                            <div id="chart-pareto" style="height: 380px;"></div>
+                            <div id="chart-heatmap" style="height: 380px; display: none;"></div>
+                        </div>
+
+                        <!-- Live Scientific Discovery Feed -->
+                        <div class="panel glass">
+                            <h3 class="panel-title"><i class="fa-solid fa-bolt"></i> Live Scientific Discovery Feed</h3>
+                            <div class="discovery-feed-container" id="discovery-feed">
+                                <div class="discovery-item system">
+                                    <span class="disc-time">[System Init]</span>
+                                    <span class="disc-text">Adaptive Scheduling engine telemetry online. Awaiting simulation step...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Right Column: Micro charts and Dynamic Weight schedules -->
+                    <div class="grid-col-4">
+                        <!-- Strategy Mix Exploration vs Exploitation Gauge -->
+                        <div class="panel glass">
+                            <h3 class="panel-title"><i class="fa-solid fa-shuffle"></i> Strategy Mix (Exploration vs Exploitation)</h3>
+                            <div class="strategy-gauge-container">
+                                <div class="strategy-gauge-labels">
+                                    <span>Exploration (α_t + β_t)</span>
+                                    <span id="lbl-explore-percent" class="text-teal font-bold">80%</span>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div id="gauge-explore" class="progress-fill explore" style="width: 80%;"></div>
+                                    <div id="gauge-exploit" class="progress-fill exploit" style="width: 20%;"></div>
+                                </div>
+                                <div class="strategy-gauge-labels font-xs">
+                                    <span class="text-muted">Uncertainty/Priorities</span>
+                                    <span class="text-muted" id="lbl-exploit-desc">Exploitation (Observability)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AI Reasoning Panel -->
+                        <div class="panel glass" id="panel-ai-reasoning">
+                            <h3 class="panel-title"><i class="fa-solid fa-brain"></i> AI Scheduler Reasoning</h3>
+                            <div class="ai-reason-body">
+                                <div class="ai-target-header">
+                                    <span class="ai-lbl">Target Selected:</span>
+                                    <strong id="ai-target-name" class="text-teal">None</strong>
+                                </div>
+                                <div class="ai-bullets" id="ai-reason-bullets">
+                                    <div class="ai-bullet info"><i class="fa-solid fa-info-circle"></i> Scrub through the rounds or press Play to trigger dynamic scheduler decisions and view explanations.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="panel glass">
+                            <h3 class="panel-title"><i class="fa-solid fa-chart-gantt"></i> Dynamic Weight Decay</h3>
+                            <div id="chart-weights" style="height: 220px;"></div>
+                            <p class="panel-caption">The Adaptive Scheduler decays the priority weight (β_t) exponentially, shifting from exploration to exploitation.</p>
+                        </div>
+                        
+                        <div class="panel glass">
+                            <h3 class="panel-title"><i class="fa-solid fa-chart-area"></i> Cumulative Gain Progress</h3>
+                            <div id="chart-gain-evolution" style="height: 220px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- 3D Planetarium View -->
+            <section id="planetarium" class="content-view">
+                <header class="view-header">
+                    <div class="header-info">
+                        <h2>3D Target Planetarium & Galactic Map</h2>
+                        <p>Interactive coordinate projection representing prioritized candidate systems</p>
+                    </div>
+                </header>
+                
+                <div class="planetarium-grid">
+                    <div class="viewport-panel glass">
+                        <div id="canvas-3d"></div>
+                        <div class="controls-overlay">
+                            <button id="btn-spin" class="btn-overlay"><i class="fa-solid fa-rotate"></i> Toggle Auto-Rotate</button>
+                            <button id="btn-reset-cam" class="btn-overlay"><i class="fa-solid fa-arrows-to-eye"></i> Reset Camera</button>
+                            <button id="btn-toggle-view" class="btn-overlay active" data-view="orbit"><i class="fa-solid fa-circle-nodes"></i> Local Orbit View</button>
+                            <button id="btn-toggle-view-galactic" class="btn-overlay" data-view="galactic"><i class="fa-solid fa-starry-night"></i> Sky Map (Galactic)</button>
+                        </div>
+                    </div>
+                    
+                    <div class="details-panel glass">
+                        <h3><i class="fa-solid fa-circle-info"></i> Selected Target Info</h3>
+                        <div id="planet-details-empty">
+                            <i class="fa-solid fa-wand-magic-sparkles details-placeholder-icon"></i>
+                            <p>Hover over or click an exoplanet in local orbit or galactic map view to view detailed metrics.</p>
+                        </div>
+                        <div id="planet-details" style="display: none;">
+                            <h4 id="detail-name">Planet Name</h4>
+                            <div class="detail-row"><span>Estimated Priority:</span> <strong id="detail-priority" class="text-teal">0.954</strong></div>
+                            <div class="detail-row"><span>Uncertainty (σ):</span> <strong id="detail-uncertainty">0.054</strong></div>
+                            <div class="detail-row"><span>Telescope Observability:</span> <strong id="detail-detectability" class="text-pink">0.820</strong></div>
+                            <div class="detail-row"><span>System Distance:</span> <strong id="detail-distance">12.5 pc</strong></div>
+                            <div class="detail-row"><span>Equilibrium Temp:</span> <strong id="detail-temp">288 K</strong></div>
+                            <div class="detail-row"><span>Radius:</span> <strong id="detail-radius">1.2 R⊕</strong></div>
+                            <div class="detail-row"><span>Parent Star:</span> <strong id="detail-star">G-Type Star</strong></div>
+                            <div class="detail-badge" id="detail-status-badge">High Priority</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Timeline Gantt View -->
+            <section id="timeline" class="content-view">
+                <header class="view-header">
+                    <div class="header-info">
+                        <h2>Observation Timeline Gantt</h2>
+                        <p>Gantt-style telescope allocation timeline across scheduling rounds</p>
+                    </div>
+                </header>
+                
+                <div class="panel glass">
+                    <h3 class="panel-title"><i class="fa-solid fa-clock"></i> Sequential Telescope Allocation Schedule</h3>
+                    <div id="chart-gantt" style="height: 550px;"></div>
+                </div>
+            </section>
+            
+            <!-- Scheduler Logs View -->
+            <section id="logs" class="content-view">
+                <header class="view-header">
+                    <div class="header-info">
+                        <h2>Scheduler Logs</h2>
+                        <p>Real-time telemetry and metrics for the Adaptive Scheduler round-by-round</p>
+                    </div>
+                </header>
+                
+                <div class="panel glass">
+                    <h3 class="panel-title"><i class="fa-solid fa-terminal"></i> Telemetry Console</h3>
+                    <div class="table-container">
+                        <table id="logs-table">
+                            <thead>
+                                <tr>
+                                    <th>Round</th>
+                                    <th>Weather</th>
+                                    <th>Telescope Hours Used</th>
+                                    <th>α_t (Uncertainty)</th>
+                                    <th>β_t (Priority)</th>
+                                    <th>γ (Observability)</th>
+                                    <th>Cumulative Gain</th>
+                                    <th>Selected Target Name</th>
+                                    <th>Target Priority</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+            
+            <audio id="audio-click" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" preload="auto"></audio>
+            <audio id="audio-tick" src="https://assets.mixkit.co/active_storage/sfx/1600/1600-84.wav" preload="auto"></audio>
+            <audio id="audio-finish" src="https://assets.mixkit.co/active_storage/sfx/2019/2019-84.wav" preload="auto"></audio>
+            
+        </main>
+    </div>
+    
+    <!-- Include local dynamic data store to bypass CORS restrictions for static files -->
+    <script src="data_store.js"></script>
+    
+    <!-- Main Premium Logic -->
+    <script src="main.js"></script>
+
+</body>
+</html>

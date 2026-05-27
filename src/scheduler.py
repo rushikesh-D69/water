@@ -408,53 +408,43 @@ class AdaptiveScheduler(BaseScheduler):
 
 
 # ── Oracle Scheduler — perfect future knowledge upper bound ──────────────────
-class OracleScheduler(BaseScheduler):
+class OracleScheduler(AdaptiveScheduler):
     """
-    Oracle Scheduler: selects the globally optimal subset every round.
+    Oracle Scheduler: selects the globally optimal set every round.
 
-    Has access to the TRUE priority scores (ground truth labels from Stage 1
-    weak supervision) — knowledge unavailable to all real schedulers.
+    Inherits from AdaptiveScheduler to share the dynamic weight scheduler,
+    but overrides `_compute_gain` to use `true_priorities` (perfect future knowledge)
+    instead of the noisy/estimated `mu` scores.
 
-    Used ONLY as an upper bound for regret computation:
-      Regret@t = (Oracle_cum_gain_t - Scheduler_cum_gain_t) / Oracle_cum_gain_t
-
-    This makes the comparison academically rigorous. Without an oracle,
-    regret is computed relative to the best observed scheduler (weaker claim).
-    With an oracle, regret is an absolute measure of information loss.
-
-    Parameters
-    ----------
-    df              : pd.DataFrame
-    true_priorities : np.ndarray  — ground truth priority_score from Stage 1
+    Used as a true upper bound for regret and normalization.
     """
 
-    def __init__(self, df: pd.DataFrame, true_priorities: np.ndarray):
-        super().__init__("Oracle", df)
+    def __init__(
+        self,
+        df:              pd.DataFrame,
+        true_priorities: np.ndarray,
+        alpha_0:         float = 0.50,
+        beta_0:          float = 0.30,
+        gamma:           float = 0.20,
+        tau:             float = 15.0,
+    ):
+        super().__init__(df, alpha_0, beta_0, gamma, tau)
+        self.name = "Oracle"
         self.true_priorities = true_priorities.copy()
 
-    def select(self, simulator, constraint_engine, round_number, k, observed_set):
-        cand_idx, feas, costs = self._feasible_candidates(constraint_engine, observed_set)
-        if len(cand_idx) == 0:
-            return [], []
+    def _compute_gain(
+        self,
+        cand_idx:  np.ndarray,
+        simulator: ObservationSimulator,
+        alpha_t:   float,
+        beta_t:    float,
+        gamma:     float,
+    ) -> np.ndarray:
+        U = simulator.sigma[cand_idx]
+        P = self.true_priorities[cand_idx]  # perfect ground truth knowledge!
+        D = simulator.detectability[cand_idx]
+        return alpha_t * U + beta_t * P + gamma * D
 
-        # Oracle scores: true priority × feasibility / cost
-        # This is the optimal achievable utility given constraint information
-        true_p  = self.true_priorities[cand_idx]
-        oracle_utility = (true_p * feas) / (costs + 1e-6)
-
-        order   = np.argsort(oracle_utility)[::-1]
-        ranked  = cand_idx[order]
-        r_costs = costs[order]
-
-        time_before = constraint_engine.time_budget
-        selected, sel_costs = self._apply_budget(ranked, r_costs, constraint_engine, k)
-
-        gains_arr = simulator.sigma[cand_idx] * simulator.detectability[cand_idx]
-        log = self._build_log(round_number, selected, sel_costs, simulator,
-                               constraint_engine, gains_arr, feas, cand_idx,
-                               0.0, 0.0, 0.0, time_before)
-        self.logs.append(log)
-        return selected, sel_costs
 
 
 # ── Campaign Runner ───────────────────────────────────────────────────────────

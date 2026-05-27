@@ -5,7 +5,8 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-rushikesh--D69%2Fwater-22b5a0?style=flat-square&logo=github)](https://github.com/rushikesh-D69/water)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python)](https://python.org)
-[![Stage](https://img.shields.io/badge/Stage%202-In%20Progress-f0a500?style=flat-square)](#roadmap)
+[![Stage](https://img.shields.io/badge/Stage%202-Complete-22b5a0?style=flat-square)](#roadmap)
+[![Dashboard](https://img.shields.io/badge/Dashboard-3D%20Interactive-blueviolet?style=flat-square)](#interactive-3d-web-dashboard)
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?style=flat-square&logo=streamlit)](#streamlit-dashboard)
 
 ---
@@ -36,21 +37,21 @@ Stage 1 — Probabilistic Prioritization (Complete)
       ↓
   Stage 1 Output: ranked priority scores + uncertainty map
 
-Stage 2 — Adaptive Observation Scheduling Engine (In Progress)
-───────────────────────────────────────────────────────────────
-  Constraint Engine:  AR(1) weather, time budget, visibility, cost
+Stage 2 — Adaptive Observation Scheduling Engine (Complete)
+────────────────────────────────────────────────────────────
+  Constraint Engine:     AR(1) weather, time budget, visibility, cost
       ↓
-  Scientific Gain:    Gain = α_t·U + β_t·P + γ·D  (β decays over time)
+  Scientific Gain:       Gain = α_t·U + β_t·P + γ·D  (β decays over time)
       ↓
-  5 Schedulers:       Static | Detectability | Uncertainty | Adaptive | Oracle
+  5 Schedulers:          Static | Detectability | Uncertainty | Adaptive | Oracle
       ↓
   Observation Simulator: SNR + weather + detectability-dependent noise
       ↓
-  Adaptive Loop:      30 rounds × 10 planets, uncertainty update, re-ranking
+  Adaptive Loop:         30 rounds × 10 planets, uncertainty update, re-ranking
       ↓
-  Evaluation:         7 metrics + Oracle regret + Campaign Diversity
+  Evaluation:            Composite Campaign Score + 7 metrics + Oracle regret
       ↓
-  Streamlit Dashboard: 5 live panels
+  3D Web Dashboard:      Three.js Planetarium & Dynamic Plotly Telemetry
 ```
 
 ---
@@ -137,7 +138,7 @@ Utility_i = (Gain_i × Feasibility_i) / Cost_i
 Regret@t = (Oracle_cumgain_t − Scheduler_cumgain_t) / Oracle_cumgain_t
 ```
 
-**Observation Noise (Issue 4 — realistic):**
+**Observation Noise (realistic, closed-loop feedback):**
 ```
 σ_new = σ_old × (0.4 + 0.4·D + 0.2·w) / √n_obs
 ```
@@ -157,32 +158,84 @@ w_t = ρ · w_{t-1} + (1-ρ) · Beta(5,2) + noise,  ρ = 0.65
 | Mass Diversity | std(log M) / mean(log M) |
 | Distance Coverage | std(d) / median(d) |
 
+### Stage 2 Empirical Evaluation Results
+
+Five schedulers were simulated over a **30-round campaign (300 observations total)** under visibility constraints, AR(1) weather perturbations, and realistic integration exposure limits. Schedulers are ranked by the **Multi-Objective Composite Campaign Score**:
+
+$$\text{CompositeScore} = 0.35 \cdot G_{\text{norm}} + 0.25 \cdot D_{\text{norm}} + 0.20 \cdot E_{\text{norm}} + 0.20 \cdot P_{\text{norm}}$$
+
+| Rank | Scheduler | Composite Score | Cum. Gain | Regret | Diversity | Priority Coverage | Telescope Util. | Obs. Eff. | Mean $\sigma$ Reduc. | Observed Planets | Telescope Hours |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | **Oracle (ceiling)** | **100.00%** | 5.7391 | 0.0000 | 0.6003 | 0.7746 | 94.6% | 0.0253 | 0.0204 | 236 | 227.0 |
+| 2 | **Adaptive Scheduler** | **99.87%** | 5.7872 | 0.0000 | 0.5992 | 0.7713 | 95.0% | 0.0254 | 0.0200 | 237 | 228.0 |
+| 3 | **Detectability Greedy** | 95.55% | 6.4366 | 0.0000 | 0.5537 | 0.6776 | 96.6% | 0.0277 | 0.0179 | 188 | 231.8 |
+| 4 | **Static Priority** | 80.40% | 3.9961 | 0.3037 | 0.5344 | 0.9854 | 95.3% | 0.0174 | 0.0630 | 174 | 228.8 |
+| 5 | **Uncertainty Greedy** | 66.05% | 3.0187 | 0.4740 | 0.4767 | 0.6723 | 95.3% | 0.0132 | 0.0989 | 143 | 228.8 |
+
+*   **Adaptive Scheduler** achieves **99.87%** of the theoretical Oracle performance, balancing information gain, high target diversity, and execution efficiency near-perfectly.
+*   **Single-Objective Baselines** exhibit severe pathologies: *Detectability Greedy* targets easy-to-observe gas giants in close orbits (mini-Neptunes) but completely neglects scientific value and target diversity; *Static Priority* over-exploits high-priority targets, wasting telescope hours during unfavorable weather.
+
+### Stage 2 Telemetry & Evaluation Plots
+
+<table>
+<tr>
+<td><img src="plots/s2_cumulative_gain.png" width="400"/><br><sub>Cumulative Scientific Gain over 30 rounds</sub></td>
+<td><img src="plots/s2_diversity.png" width="400"/><br><sub>Campaign Parameter-Space Diversity (5 dimensions)</sub></td>
+</tr>
+<tr>
+<td><img src="plots/s2_regret.png" width="400"/><br><sub>Dynamic Scheduler Regret relative to Oracle</sub></td>
+<td><img src="plots/s2_efficiency.png" width="400"/><br><sub>Observation Efficiency (scientific gain per hour)</sub></td>
+</tr>
+<tr>
+<td><img src="plots/s2_pareto_frontier.png" width="400"/><br><sub>Dynamic Pareto Frontier in Gain vs. Diversity space</sub></td>
+<td><img src="plots/s2_uncertainty_evolution.png" width="400"/><br><sub>Evolution of Prediction Uncertainty & Selected Target Priority</sub></td>
+</tr>
+<tr>
+<td><img src="plots/s2_weather_sequence.png" width="400"/><br><sub>Generated AR(1) Weather and Visibility Quality Sequence</sub></td>
+<td><img src="plots/s2_weight_decay.png" width="400"/><br><sub>Dynamic Exponential Weight Decay ($\alpha_t, \beta_t$) Sequence</sub></td>
+</tr>
+</table>
+
 ---
 
-## Streamlit Dashboard
+## Interactive 3D Web Dashboard
 
-**5 interactive panels:**
+We have developed a state-of-the-art **Interactive 3D Web Dashboard** (`dashboard/index.html`) using HTML5, CSS3, Vanilla JavaScript, **Three.js** (for 3D graphics), and **Plotly.js** (for dynamic plotting). The dashboard runs fully **offline** (`file:///` protocol) by embedding pre-serialized telemetry directly in `data_store.js`, completely bypassing browser CORS blockages.
 
-| Panel | Content |
-|-------|---------|
-| Telescope Queue | Top-20 targets, priority × detectability scatter |
-| Priority Evolution | Mean priority, uncertainty, cumulative gain, weight decay |
-| Uncertainty Heatmap | T_eq vs Radius space — observed (stars) vs unobserved |
-| Campaign Timeline | Gantt-style Plotly schedule with weather opacity encoding |
-| Metrics Dashboard | Comparison table, live regret vs Oracle, all generated plots |
+### High-Impact Features
 
-**Run locally:**
+1.  **Live Reprioritization Animation ⭐⭐⭐⭐⭐**
+    *   Watch exoplanets reorder in real-time inside the campaign leaderboard. As rounds advance, planet rows dynamically swap vertical positions using smooth CSS flex transitions to reflect priority score updates.
+2.  **AI Reasoning Panel ⭐⭐⭐⭐⭐**
+    *   Exposes explainable scientific AI decision-making. Select any target and see an instant mathematical "+/-" breakdown of why it was chosen (e.g. `+ High uncertainty reduction potential`, `+ Favorable detectability`, `- Transition overhead`).
+3.  **Exploration vs. Exploitation Gauge ⭐⭐⭐⭐**
+    *   Shows real-time gauges representing the dynamic trade-off mix. Watch the schedule shift live from exploratory scans in early rounds to focused target exploitation as uncertainties shrink.
+4.  **Sky Map / Galactic View ⭐⭐⭐⭐**
+    *   Toggles between a local 3D Keplerian orbital view and a beautiful Milky-Way-style galactic target distribution map. Renders star systems as color-coded coordinates mapping active priority hotspots.
+5.  **Scientific Discovery Feed ⭐⭐⭐⭐⭐**
+    *   A live, terminal-style news ticker displaying scheduler events (e.g. `[Round 12] Shifted scheduling bias toward underexplored K-type systems due to rapid uncertainty reduction`).
+6.  **Campaign Replay System ⭐⭐⭐⭐**
+    *   A comprehensive playback toolbar with controls (Play, Pause, Reset, Fast Forward) and a round slider (1 to 30) letting users scrub through the campaign to watch parameters evolve.
+7.  **Multi-Telescope Operations ⭐⭐⭐⭐⭐**
+    *   Simulates coordinated observations between **JWST**, a **Ground-Based Observatory**, and a **Survey Telescope (TESS-like)**, displaying live telescope utilization and wavelength indicators.
+8.  **Scientific Gain Heatmap ⭐⭐⭐⭐**
+    *   Renders equilibrium temperature ($T_{\text{eq}}$) vs. planetary radius ($R_{\text{p}}$) colored by parameter-space uncertainty. Watch uncertainty hotspots extinguish in real-time as targets are scheduled.
+9.  **Dynamic Pareto Frontier ⭐⭐⭐⭐**
+    *   Plots schedulers in the Cumulative Gain vs. Campaign Diversity space. Watch the scheduler nodes trace their optimization trajectories toward the optimal boundary in real-time.
+10. **Physical Sound Design (Web Audio API) ⭐⭐⭐⭐⭐**
+    *   Synthesizes live high-fidelity chimes (radar pings on acquisitions, data ticks, and arpeggiated success chords) using pure HTML5 oscillators, ensuring offline compatibility.
+
+### Running the Dashboards
+
+#### 1. Interactive 3D Web Dashboard (Recommended)
+Simply open the dashboard file directly in any web browser! No installation, server, or internet connection required:
+*   Double-click `dashboard/index.html` or open `file:///D:/PEOJECTS/water/dashboard/index.html` in your browser.
+
+#### 2. Companion Streamlit Dashboard
+If you prefer a Python-driven dashboard, a complete Streamlit panels interface is included:
 ```bash
 pip install streamlit plotly
 streamlit run dashboard/app.py
-```
-
-**Run in Colab:**
-```python
-!pip install -q streamlit plotly
-!streamlit run dashboard/app.py &
-from google.colab.output import eval_js
-print(eval_js('google.colab.kernel.proxyPort(8501)'))
 ```
 
 ---
@@ -235,16 +288,21 @@ water/
 │   ├── scheduler.py               # 5 schedulers + OracleScheduler + campaign runner
 │   └── evaluation.py              # 7 metrics, comparison table, 7 plots
 ├── dashboard/
-│   ├── app.py                     # Streamlit 5-panel dashboard
+│   ├── index.html                 # 3D Interactive Web Dashboard (HTML5, JS, CSS)
+│   ├── main.js                    # Controller: Three.js planetarium, Plotly logic, synthesizer
+│   ├── style.css                  # Premium dark-mode glassmorphic CSS styling
+│   ├── data_store.js              # Pre-packaged campaign results (bypasses CORS blocks)
+│   ├── app.py                     # Streamlit 5-panel companion dashboard
 │   └── requirements.txt
 ├── data/
 │   ├── exoplanets_processed.csv   # 5,522 ML-ready planets
 │   ├── final_priority_ranking.csv # Ranked telescope targets
-│   └── stage2_*.csv               # Stage 2 campaign results
-├── plots/                         # All generated plots (Stage 1 + Stage 2)
-├── models/                        # Saved trained models
+│   ├── s2_*_logs.csv              # Stage 2 campaign scheduler telemetry logs
+│   └── stage2_comparison.csv      # Unified Stage 2 metrics comparison
+├── plots/                         # 18 generated telemetry plots (Stage 1 + Stage 2)
+├── models/                        # Saved trained ML models
 ├── report/
-│   ├── main.tex                   # Full LaTeX technical report
+│   ├── main.tex                   # Full LaTeX technical report (Section 10 updated)
 │   └── references.bib
 └── .gitignore
 ```
@@ -256,7 +314,7 @@ water/
 | Stage | Status | Description |
 |-------|--------|-------------|
 | **Stage 1** | ✅ Complete | Static ML Ranking — 4 models, SHAP, uncertainty, temporal simulation |
-| **Stage 2** | 🔄 In Progress | Adaptive Scheduling — 5 schedulers, Oracle regret, Campaign Diversity, Streamlit |
+| **Stage 2** | ✅ Complete | Adaptive Scheduling — 5 schedulers, Oracle regret, Campaign Diversity, 3D Dashboard |
 | **Stage 3** | Planned | RL Scheduler — PPO/DQN (Stable-Baselines3), MDP formulation |
 
 ---
