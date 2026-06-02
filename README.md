@@ -125,12 +125,7 @@ The five schedulers were simulated over a **30-round campaign (300 observations 
 *   **Static Over-Concentration Pathology:** The *Static Priority* baseline targets high-priority worlds, but fails to adapt to dynamic visibility or persistent weather, wasting valuable telescope hours pointing at obscured systems during storms.
 *   **Oracle Numerical outperformance:** Schedulers that greedily target easy-to-observe planets can numerically exceed the Oracle Reference in raw cumulative gain (e.g. $6.4366$ vs $5.7391$) because the Oracle Reference optimizes the *joint, multi-objective utility function* over the campaign. It balances priority, diversity, and efficiency, maximizing the Composite Campaign Score ($100\%$) rather than a single-objective raw metric.
 
-### 3. Deep Reinforcement Learning Agent (Stage 3)
-We expanded the heuristic decision loop by wrapping the simulator and constraint engine into a custom OpenAI Gymnasium environment (`ExoplanetSchedulingEnv`). Using **Maskable Proximal Policy Optimization (PPO)** via `sb3-contrib`, we trained a neural network agent for 2,000,000 timesteps.
-*   **Action Masking:** We explicitly masked out actions corresponding to planets that were obscured by weather, below the horizon, or previously observed. Without masking, the agent learned a "lazy" policy (observing 1 planet). With masking, it successfully learned to navigate the state space.
-*   **Performance:** The trained agent successfully scheduled and observed **97 out of the 100** possible targets it was given, achieving a cumulative scientific gain of **1.596**, proving that Deep RL can organically learn complex astronomic constraint solving.
-
-### 4. Parameter Sensitivity Analysis (Stage 2.5)
+### 3. Parameter Sensitivity Analysis (Stage 2.5)
 We conducted an extensive sensitivity and boundary analysis across our fixed parameters ($\varepsilon, \tau, \rho$) to verify campaign robustness:
 
 <p align="center">
@@ -140,6 +135,11 @@ We conducted an extensive sensitivity and boundary analysis across our fixed par
 
 *   **Prior Smoothing Parameter ($\varepsilon$):** If $\varepsilon \to 0$, the priority score collapses to zero outside the conservative habitable zone, leaving vast flat regions that deprive ML models of gradient signal. If $\varepsilon \to 1.0$, the smoothing prior dilutes the physical contrast between worlds. The sweet spot resides at $\varepsilon \in [0.05, 0.20]$, justifying our choice of $\varepsilon = 0.1$.
 *   **Decay Time Constant ($\tau$):** Very small $\tau \to 1.0$ triggers premature exploitation (skipping exploratory scans), while very large $\tau \to 100.0$ wastes telescope hours exploring borderline targets late in the campaign. The optimal campaign score achieves a stable plateau for $\tau \in [12.0, 20.0]$ rounds, justifying our selection of $\tau = 15.0$ rounds.
+
+### 4. Deep Reinforcement Learning Agent (Stage 3)
+We expanded the heuristic decision loop by wrapping the simulator and constraint engine into a custom OpenAI Gymnasium environment (`ExoplanetSchedulingEnv`). Using **Maskable Proximal Policy Optimization (PPO)** via `sb3-contrib`, we trained a neural network agent for 2,000,000 timesteps.
+*   **Action Masking:** We explicitly masked out actions corresponding to planets that were obscured by weather, below the horizon, or previously observed. Without masking, the agent learned a "lazy" policy (observing 1 planet). With masking, it successfully learned to navigate the state space.
+*   **Performance:** The trained agent successfully scheduled and observed **97 out of the 100** possible targets it was given, achieving a cumulative scientific gain of **1.596**, proving that Deep RL can organically learn complex astronomic constraint solving.
 
 ---
 
