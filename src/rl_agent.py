@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import gymnasium as gym
 
 # ── Stable-Baselines3 imports (with graceful fallback for missing sb3-contrib) ─
 try:
@@ -260,9 +261,6 @@ def _make_masked_env(env_kwargs: dict) -> gym.Env:
     if _HAS_MASKING:
         env = ActionMasker(env, lambda e: e.action_masks())
     return Monitor(env)
-
-
-import gymnasium as gym
 
 
 def train_ppo_curriculum(
