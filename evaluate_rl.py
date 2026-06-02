@@ -38,7 +38,7 @@ def evaluate():
     
     sim_rl = ObservationSimulator(df=df_ml, initial_means=mu_pred.copy(), initial_sigmas=sigma_pred.copy(), seed=42)
     ce_rl = ObservationConstraintEngine(df_ml, seed=42)
-    rl_scheduler = RLScheduler("RL PPO Scheduler", df_ml, model, top_k=100)
+    rl_scheduler = RLScheduler("RL PPO Scheduler", df_ml, model, top_k=500)
     run_campaign(rl_scheduler, sim_rl, ce_rl, n_rounds=30, k_per_round=10, verbose=False)
     
     df_rl = rl_scheduler.get_logs_df()

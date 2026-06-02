@@ -40,7 +40,7 @@ def main():
         simulator=simulator, 
         constraint_engine=constraint_engine, 
         max_rounds=30, 
-        top_k_targets=100
+        top_k_targets=500
     )
     
     env = ActionMasker(base_env, mask_fn)
@@ -65,7 +65,7 @@ def main():
     )
     ce_eval = ObservationConstraintEngine(df_ml, seed=100)
     
-    rl_scheduler = RLScheduler("RL Maskable PPO Scheduler", df_ml, model, top_k=100)
+    rl_scheduler = RLScheduler("RL Maskable PPO Scheduler", df_ml, model, top_k=500)
     
     results = run_campaign(
         scheduler=rl_scheduler, 
