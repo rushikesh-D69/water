@@ -417,7 +417,6 @@ class OracleScheduler(AdaptiveScheduler):
     and even Adaptive can exceed Oracle gain because the Oracle does not
     maximize that scalar.
     """
-    """
 
     def __init__(
         self,
