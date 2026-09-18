@@ -3,9 +3,10 @@ ml_pipeline.py  — v2.0
 ========================
 Stage 1: Exoplanet Probabilistic Prioritization — ML Training
 
-Architecture changes in v2.0:
+Architecture changes in v2.2:
   - REGRESSION not classification (continuous priority_score target)
-  - Leakage-free: no HZ/ESI features in model inputs
+  - Derived HZ/ESI/rocky scores are excluded from X; their catalog inputs are not.
+    Reported ranking metrics recover a deterministic composite, not independent skill.
   - Uncertainty estimation via ensemble variance (RF tree variance + XGB bags)
   - Scientific Gain = uncertainty * detectability
   - Ranking-appropriate evaluation metrics:
@@ -25,7 +26,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
-import shap
+try:
+    import shap
+    HAS_SHAP = True
+except ImportError:
+    shap = None
+    HAS_SHAP = False
 
 from pathlib import Path
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
@@ -49,15 +55,10 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 PROCESSED_CSV = DATA_DIR / "exoplanets_processed.csv"
 
-DARK_BG = "#0d1117"
-PANEL   = "#161b22"
-ACCENT  = "#22b5a0"
-GOLD    = "#f0a500"
-PINK    = "#c9ada7"
-BLUE    = "#7bc8f6"
-TEXT    = "#e6edf3"
-MUTED   = "#8b949e"
-COLORS  = [ACCENT, GOLD, PINK, BLUE]
+from src.plot_style import (
+    PAPER_BG, PANEL, ACCENT, GOLD, PINK, TEXT, MUTED, BLUE, SPINE, COLORS, DPI,
+    MODEL_STYLES, style_ax, legend, savefig, export_ieee_figures,
+)
 
 TARGET = "priority_score"
 
@@ -357,46 +358,39 @@ def save_models(results):
 # 8. Plots
 # =============================================================================
 
-def _dark_fig(figsize=(10, 7)):
+def _paper_fig(figsize=(6.4, 4.2)):
     fig, ax = plt.subplots(figsize=figsize)
-    fig.patch.set_facecolor(DARK_BG)
-    ax.set_facecolor(PANEL)
-    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-    ax.tick_params(colors=MUTED)
-    ax.xaxis.label.set_color(TEXT); ax.yaxis.label.set_color(TEXT)
-    ax.title.set_color(TEXT)
+    style_ax(ax)
     return fig, ax
 
 
 def plot_predicted_vs_actual(results):
     """Scatter: predicted vs actual priority score for each model."""
     n = len(results)
-    fig, axes = plt.subplots(1, n, figsize=(7 * n, 7))
-    fig.patch.set_facecolor(DARK_BG)
-    if n == 1: axes = [axes]
+    fig, axes = plt.subplots(1, n, figsize=(3.3 * n, 3.3))
+    if n == 1:
+        axes = [axes]
 
-    for ax, (name, res), color in zip(axes, results.items(), COLORS):
-        ax.set_facecolor(PANEL)
-        for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-        ax.tick_params(colors=MUTED)
-
+    for ax, (name, res) in zip(axes, results.items()):
+        st = MODEL_STYLES.get(name, dict(color=TEXT, marker="o"))
+        style_ax(ax)
         ax.scatter(res["y_test"], res["y_pred"],
-                   c=color, s=12, alpha=0.5, label=name)
+                   c=st["color"], s=10, alpha=0.45, marker=st["marker"],
+                   edgecolors="none", label=name)
         ax.plot([0, 1], [0, 1], color=MUTED, lw=1, ls="--")
-        ax.set_xlabel("Actual Priority Score", color=TEXT)
-        ax.set_ylabel("Predicted Priority Score", color=TEXT)
+        ax.set_xlabel("Actual $P_i$")
+        ax.set_ylabel("Predicted $P_i$")
         m = res["metrics"]
         ax.set_title(
-            f"{name}\nR2={m['R2']:.3f}  Spearman={m['Spearman']:.3f}  NDCG@50={m['NDCG@50']:.3f}",
-            color=TEXT, fontsize=10
+            f"{name}\n$R^2$={m['R2']:.3f}  NDCG@50={m['NDCG@50']:.3f}",
+            fontsize=9,
         )
-        ax.set_xlim(-0.05, 1.05); ax.set_ylim(-0.05, 1.05)
+        ax.set_xlim(-0.05, 1.05)
+        ax.set_ylim(-0.05, 1.05)
+        ax.set_aspect("equal", adjustable="box")
 
-    plt.tight_layout()
-    out = PLOTS_DIR / "predicted_vs_actual.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "predicted_vs_actual.png")
 
 
 def plot_ranking_metrics(results):
@@ -405,14 +399,15 @@ def plot_ranking_metrics(results):
     n_metrics    = len(metric_names)
     n_models     = len(results)
 
-    fig, ax = _dark_fig(figsize=(13, 7))
+    fig, ax = _paper_fig(figsize=(7.2, 4.0))
     x       = np.arange(n_metrics)
     width   = 0.8 / n_models
 
     for i, (name, res) in enumerate(results.items()):
+        st = MODEL_STYLES.get(name, dict(color=COLORS[i % len(COLORS)]))
         vals = [res["metrics"][m] for m in metric_names]
         bars = ax.bar(x + i * width, vals, width, label=name,
-                      color=COLORS[i], alpha=0.85)
+                      color=st["color"], alpha=0.85)
         for bar, v in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
                     f"{v:.3f}", ha="center", fontsize=8, color=MUTED)
@@ -422,25 +417,23 @@ def plot_ranking_metrics(results):
     ax.set_ylim(0, 1.15)
     ax.set_ylabel("Score")
     ax.set_title("Ranking Metrics Comparison\n(NDCG, MAP, Spearman rho, Kendall tau)")
-    ax.legend(facecolor=PANEL, edgecolor="#30363d", labelcolor=TEXT)
+    legend(ax)
     ax.axhline(1.0, color=MUTED, lw=0.5, ls="--")
 
-    out = PLOTS_DIR / "ranking_metrics.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    savefig(fig, PLOTS_DIR / "ranking_metrics.png")
 
 
 def plot_cv_spearman(results):
     """Box plot of 5-fold CV Spearman correlation per model."""
-    fig, ax = _dark_fig(figsize=(9, 6))
+    fig, ax = _paper_fig(figsize=(6.0, 3.8))
 
     data   = [res["cv_spearman"] for res in results.values()]
     labels = list(results.keys())
     bps    = ax.boxplot(data, labels=labels, patch_artist=True, notch=True,
-                        medianprops=dict(color=DARK_BG, lw=2))
-    for patch, c in zip(bps["boxes"], COLORS):
-        patch.set_facecolor(c); patch.set_alpha(0.75)
+                        medianprops=dict(color=TEXT, lw=1.4))
+    for patch, (name, res) in zip(bps["boxes"], results.items()):
+        st = MODEL_STYLES.get(name, dict(color=TEXT))
+        patch.set_facecolor(st["color"]); patch.set_alpha(0.75)
     for elem in ["whiskers", "caps", "fliers"]:
         for item in bps[elem]: item.set_color(MUTED)
 
@@ -448,12 +441,9 @@ def plot_cv_spearman(results):
     ax.set_title("Cross-Validation: Ranking Quality per Model")
     ax.set_ylim(-0.1, 1.1)
     ax.axhline(0.8, color=MUTED, lw=0.8, ls="--", label="0.8 reference")
-    ax.legend(facecolor=PANEL, edgecolor="#30363d", labelcolor=TEXT)
+    legend(ax)
 
-    out = PLOTS_DIR / "cv_spearman.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    savefig(fig, PLOTS_DIR / "cv_spearman.png")
 
 
 def plot_uncertainty_vs_priority(results):
@@ -464,59 +454,42 @@ def plot_uncertainty_vs_priority(results):
     name = "Random Forest" if "Random Forest" in results else list(results.keys())[0]
     res  = results[name]
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
-    fig.patch.set_facecolor(DARK_BG)
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.8))
 
-    # ---- Left: uncertainty vs priority score --------------------------------
     ax = axes[0]
-    ax.set_facecolor(PANEL)
-    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-    ax.tick_params(colors=MUTED)
-
+    style_ax(ax, f"Uncertainty vs priority ({name})", "Predicted $P_i$", r"Uncertainty $\sigma$")
     sc = ax.scatter(
         res["uncertainty_mean"], res["uncertainty_std"],
-        c=res["scientific_gain"], cmap="plasma",
-        s=15, alpha=0.7
+        c=res["scientific_gain"], cmap="cividis",
+        s=10, alpha=0.7, edgecolors="none"
     )
     cbar = plt.colorbar(sc, ax=ax)
-    cbar.set_label("Scientific Gain = Uncertainty * Detectability", color=TEXT)
-    cbar.ax.yaxis.set_tick_params(color=MUTED)
-    ax.set_xlabel("Predicted Priority Score", color=TEXT)
-    ax.set_ylabel("Prediction Uncertainty (std)", color=TEXT)
-    ax.set_title(f"Uncertainty vs Priority Score\n({name})", color=TEXT)
-
-    # Mark top scientific gain targets
+    cbar.set_label(r"Scientific gain = $\sigma \times D$")
     top_gain_idx = np.argsort(res["scientific_gain"])[::-1][:20]
     ax.scatter(
         res["uncertainty_mean"][top_gain_idx],
         res["uncertainty_std"][top_gain_idx],
-        color=GOLD, s=60, marker="*", zorder=5, label="Top 20 gain targets"
+        color=GOLD, s=40, marker="*", zorder=5, label="Top 20 gain targets",
+        edgecolors=SPINE, linewidths=0.3,
     )
-    ax.legend(facecolor=PANEL, edgecolor="#30363d", labelcolor=TEXT)
+    legend(ax)
 
-    # ---- Right: uncertainty histogram ---------------------------------------
     ax = axes[1]
-    ax.set_facecolor(PANEL)
-    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-    ax.tick_params(colors=MUTED)
-
-    ax.hist(res["uncertainty_std"], bins=50, color=ACCENT, alpha=0.85, edgecolor=DARK_BG)
+    style_ax(ax, "Uncertainty distribution", r"Uncertainty $\sigma$", "Count")
+    ax.hist(res["uncertainty_std"], bins=50, color=ACCENT, alpha=0.85, edgecolor=SPINE, linewidth=0.3)
     ax.axvline(res["uncertainty_std"].mean(), color=GOLD, lw=1.5, ls="--",
                label=f"Mean = {res['uncertainty_std'].mean():.4f}")
-    ax.set_xlabel("Prediction Uncertainty (std across trees)", color=TEXT)
-    ax.set_ylabel("Count", color=TEXT)
-    ax.set_title("Uncertainty Distribution\n(Planet A: 0.82 +/- 0.11  vs  Planet B: 0.81 +/- 0.24)", color=TEXT)
-    ax.legend(facecolor=PANEL, edgecolor="#30363d", labelcolor=TEXT)
+    legend(ax)
 
-    plt.tight_layout()
-    out = PLOTS_DIR / "uncertainty_analysis.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "uncertainty_analysis.png")
 
 
 def plot_shap(results):
     """SHAP summary: Astrophysical Drivers of Telescope Prioritization."""
+    if not HAS_SHAP:
+        print("[Warn]  shap is not installed; skipping SHAP plots.")
+        return
     for name, res in results.items():
         print(f"[SHAP]  Computing SHAP values for {name} ...")
         try:
@@ -531,34 +504,24 @@ def plot_shap(results):
 
             mean_abs = pd.Series(np.abs(sv).mean(axis=0), index=feats).sort_values(ascending=False).head(20)
 
-            fig, ax = plt.subplots(figsize=(11, 8))
-            fig.patch.set_facecolor(DARK_BG)
-            ax.set_facecolor(PANEL)
-            for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-            ax.tick_params(colors=MUTED)
+            fig, ax = plt.subplots(figsize=(7.2, 5.2))
+            style_ax(ax)
 
             bar_colors = [ACCENT if "pl_" in f else GOLD if "st_" in f else PINK
                           for f in mean_abs.index[::-1]]
             bars = ax.barh(mean_abs.index[::-1], mean_abs.values[::-1],
-                           color=bar_colors, alpha=0.85)
+                           color=bar_colors, edgecolor=SPINE, linewidth=0.3)
 
-            ax.set_xlabel("Mean |SHAP Value|\n(Astrophysical Driver Magnitude)", color=TEXT)
-            ax.set_title(
-                f"Astrophysical Drivers of Telescope Prioritization — {name}\n"
-                f"(Green=Planetary | Gold=Stellar | Pink=Observational)",
-                color=TEXT, fontsize=11
-            )
+            ax.set_xlabel(r"Mean |SHAP value|")
+            ax.set_title(f"Astrophysical drivers — {name}\n(blue=planet, gold=star, vermillion=observational)")
 
             for bar, val in zip(bars, mean_abs.values[::-1]):
                 ax.text(val + 1e-5, bar.get_y() + bar.get_height() / 2,
-                        f"{val:.4f}", va="center", ha="left", fontsize=8, color=MUTED)
+                        f"{val:.4f}", va="center", ha="left", fontsize=7, color=MUTED)
 
-            plt.tight_layout()
+            fig.tight_layout()
             safe = name.lower().replace(" ", "_")
-            out  = PLOTS_DIR / f"shap_{safe}.png"
-            fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-            plt.close(fig)
-            print(f"[Plot]  Saved -> {out}")
+            savefig(fig, PLOTS_DIR / f"shap_{safe}.png")
             mean_abs.to_csv(PLOTS_DIR / f"shap_{safe}.csv", header=["mean_abs_shap"])
 
         except Exception as e:
@@ -572,29 +535,24 @@ def plot_shap(results):
 def plot_feature_importance(results):
     """Bar chart of native feature importances from tree-based models."""
     n    = len(results)
-    fig, axes = plt.subplots(1, n, figsize=(9 * n, 9))
-    fig.patch.set_facecolor(DARK_BG)
-    if n == 1: axes = [axes]
+    fig, axes = plt.subplots(1, n, figsize=(3.4 * n, 4.6))
+    if n == 1:
+        axes = [axes]
 
-    for ax, (name, res), color in zip(axes, results.items(), COLORS):
+    for ax, (name, res) in zip(axes, results.items()):
         model = res["model"]; feats = res["feature_names"]
-        ax.set_facecolor(PANEL)
-        for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-        ax.tick_params(colors=MUTED, labelsize=8)
-        ax.xaxis.label.set_color(TEXT); ax.yaxis.label.set_color(TEXT)
-        ax.title.set_color(TEXT)
+        style_ax(ax)
+        ax.tick_params(labelsize=7)
+        color = MODEL_STYLES.get(name, dict(color=TEXT))["color"]
 
         if hasattr(model, "feature_importances_"):
             imp = pd.Series(model.feature_importances_, index=feats).nlargest(15)
-            ax.barh(imp.index[::-1], imp.values[::-1], color=color, alpha=0.85)
-            ax.set_xlabel("Feature Importance")
-            ax.set_title(f"{name}\nTop 15 Astrophysical Drivers")
+            ax.barh(imp.index[::-1], imp.values[::-1], color=color, edgecolor=SPINE, linewidth=0.3)
+            ax.set_xlabel("Feature importance")
+            ax.set_title(f"{name}\nTop 15 drivers", fontsize=9)
 
-    plt.tight_layout()
-    out = PLOTS_DIR / "feature_importance.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "feature_importance.png")
 
 
 # =============================================================================
@@ -666,14 +624,9 @@ def temporal_simulation(results, df_full, n_rounds=3, k_per_round=10):
 
 def _plot_simulation(sim_log, results, k=10):
     """Plot cumulative scientific gain across rounds vs baselines."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    fig.patch.set_facecolor(DARK_BG)
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.8))
     for ax in axes:
-        ax.set_facecolor(PANEL)
-        for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-        ax.tick_params(colors=MUTED)
-        ax.xaxis.label.set_color(TEXT); ax.yaxis.label.set_color(TEXT)
-        ax.title.set_color(TEXT)
+        style_ax(ax)
 
     # ---- Cumulative gain plot -----------------------------------------------
     ax = axes[0]
@@ -717,8 +670,8 @@ def _plot_simulation(sim_log, results, k=10):
 
         ax.set_xlabel("Observation Round")
         ax.set_ylabel("Cumulative Scientific Gain")
-        ax.set_title("Cumulative Scientific Gain per Round\n(Motivates Stage 2 Dynamic Prioritization)")
-        ax.legend(facecolor=PANEL, edgecolor="#30363d", labelcolor=TEXT)
+        ax.set_title("Cumulative scientific gain per round")
+        legend(ax)
 
     # ---- Mean priority of selected targets per round -----------------------
     ax = axes[1]
@@ -728,11 +681,8 @@ def _plot_simulation(sim_log, results, k=10):
     ax.set_ylabel("Mean Priority Score of Selected Targets")
     ax.set_title("Quality of Selected Targets per Round\n(Decreasing = system is exploring appropriately)")
 
-    plt.tight_layout()
-    out = PLOTS_DIR / "temporal_simulation.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "temporal_simulation.png")
 
 
 # =============================================================================
@@ -833,6 +783,7 @@ def run_ml_pipeline():
     ranking = build_final_ranking(results, df_full)
 
     print_summary_table(results)
+    export_ieee_figures()
 
     print("\n[Done]  ML Pipeline v2.0 complete.")
     print("=" * 60)

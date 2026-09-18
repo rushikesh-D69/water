@@ -1,6 +1,6 @@
-# Autonomous Scientific Observation & Scheduling Under Uncertainty
+# Adaptive Multi-Objective Scheduling of Simulated Exoplanet Campaigns
 
-### An Information-Theoretic Active Exploration Framework for Exoplanet Characterization campaigns
+Simulation code and draft manuscript for ranking NASA catalog targets with a physically motivated composite index, then comparing scheduling heuristics under synthetic visibility and weather. This is not an operational JWST or HWO scheduler.
 
 [![GitHub](https://img.shields.io/badge/GitHub-rushikesh--D69%2Fwater-22b5a0?style=flat-square&logo=github)](https://github.com/rushikesh-D69/water)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python)](https://python.org)
@@ -10,53 +10,51 @@
 
 ---
 
-##  Research Positioning
+## Research Positioning
 
-The characterization of exoplanet atmospheres via transit spectroscopy is one of the most photon-expensive frontiers in modern astrophysics. flag-ship space observatories (e.g., the James Webb Space Telescope and the future Habitable Worlds Observatory) operate under severe resource constraints, allocating only a fraction of their lifespans to spectroscopic surveys. 
+Spectroscopic follow-up is expensive. Static lists ignore visibility and weather. Single-objective detectability greedy concentrates on easy mini-Neptunes.
 
-Traditional survey planning relies on static, human-curated target tables that ignore time-varying pointing visibility, orbital window constraints, and stochastic weather interruptions. Consequently, static schedules are highly inefficient and systematically biased toward massive, close-in gas giants (the "mini-Neptune trap"), completely neglecting smaller terrestrial worlds of astrobiological interest.
+**Contribution (falsifiable):** under simulated visibility and an AR(1) weather process, an entropy-decay-weighted scheduler that mixes priority, uncertainty, and detectability outperforms static and single-objective greedy baselines on diversity and priority coverage.
 
-This framework introduces a unified, two-stage autonomous decision framework that treats telescope target selection and campaign execution as an **active, constrained sequential information-acquisition problem under uncertainty**. By balancing target-specific priority, epistemic uncertainty (entropy), and physical detectability, the scheduler dynamically re-routes telescope operations to maximize the volume and diversity of characterization discoveries per unit time.
+**Not claimed:** independent astrophysical ranking from leakage-free observables; operational relevance to JWST/HWO; near-Oracle composite score as scientific evidence (the Oracle optimizes the same utility).
 
 ---
 
-## 🏗️ System Architecture
+## Architecture
 
-Our framework separates target selection and active campaign execution into two closed-loop computational stages, ensuring a mathematically rigorous, leakage-free decision pipeline:
+Two computational stages. Stage 1 recovers a deterministic composite index from catalog columns that overlap the label (derived HZ/ESI/rocky scores are held out; $R_p$, $\rho_p$, $T_{\text{eq}}$, $a$, $T_{\text{eff}}$, detectability, etc. are not). Stage 2 is a constrained greedy scheduler. Visibility, weather, cost, and noise are synthetic generators.
 
 ```mermaid
 flowchart TD
-    subgraph Stage1["Stage 1: target Prioritization & UQ (Offline)"]
-        A["NASA Exoplanet Archive composite parameters<br>(TAP API: 6,284 raw targets)"] --> B["Scientific Imputations<br>(Chen & Kipping Mass-Radius, Stefan-Boltzmann)"]
-        B --> C["Astro-Utility Construction<br>(Multiplicative Conjunctive Habitability + eps=0.1)"]
-        C --> D["Quantile Normalization<br>(Uniform target priority_score ∈ [0,1])"]
-        E["Raw Observables Feature Space<br>(31 features: planetary, stellar, magnitudes)"] -.-> F["Strict No-Leakage Feature Boundary"]
-        F --> G["Ensemble Machine Learning<br>(Random Forest, XGBoost, GBR, LightGBM)"]
+    subgraph Stage1["Stage 1: catalog-index recovery"]
+        A["NASA Exoplanet Archive pscomppars<br>TAP snapshot 2026-05-26: 6,284 raw / 5,522 filtered"] --> B["Imputation<br>Chen & Kipping mass-radius, Stefan-Boltzmann Teq"]
+        B --> C["Label: HZ × rocky × ESI + detectability blend"]
+        C --> D["Quantile normalize priority_score to [0,1]"]
+        E["31 catalog columns<br>includes label inputs"] --> G["Tree ensembles<br>RF, XGBoost, GBR, LightGBM"]
         D --> G
-        G --> H["Model Output:<br>Priority Mean (μ) & Epistemic Uncertainty (σ)"]
+        G --> H["μ and tree-variance σ for scheduling"]
     end
 
-    subgraph Stage2["Stage 2: Active Scheduling Engine (Online)"]
-        H --> I["Dynamic shortlist Generation<br>(N_c = 100 highest-value candidates)"]
-        I --> J["Active Scheduling Decision Loop<br>(Rounds t = 1 ... T)"]
-        J --> K["Constraint Engine Filtering<br>(Visibility V_i^(t) ∈ {0,1}, Weather W^(t) ∈ [0,1])"]
-        K --> L["Heuristic sorting via Heap<br>(Knapsack Cost-Utility Optimization)"]
-        L --> M["Select target observed_set O_t"]
-        M --> N["Simulate transit Spectroscopy<br>(Weather-dependent Cost, Gaussian Noise)"]
-        N --> O["Uncertainty Update<br>(σ_after = 0.5 * σ_before)"]
-        O --> P["Dynamic Weight Decay<br>(Exploration α_t → Exploitation β_t)"]
+    subgraph Stage2["Stage 2: simulated campaign"]
+        H --> I["Shortlist Nc = 100"]
+        I --> J["Rounds t = 1 ... T"]
+        J --> K["Simulated V_i^(t) and AR(1) weather W^(t)"]
+        K --> L["Greedy utility / cost selection"]
+        L --> M["Observe O_t"]
+        M --> N["Synthetic cost and noise"]
+        N --> O["σ ← 0.5 σ"]
+        O --> P["Decay α_t, β_t"]
         P --> J
     end
-    
-    J --> Q["Multi-Objective Composite evaluation<br>(99.87% of perfect-knowledge Oracle Reference)"]
-    Q --> R["Interactive 3D Web Dashboard<br>(Three.js Planetarium & Dynamic Plotly Telemetry)"]
+
+    J --> Q["Compare Adaptive vs static and greedy baselines<br>Oracle is same-objective implementation check"]
 ```
 
 ---
 
 ##  Scheduler Decision Flow
 
-At each scheduling interval $t$, the telescope functions as an active decision agent that cycles through constraint checking, heuristic utility sorting, and database updating:
+At each round $t$ the simulated scheduler filters on visibility and weather, scores remaining targets, and greedily fills an exposure budget:
 
 ```mermaid
 sequenceDiagram
@@ -88,8 +86,9 @@ sequenceDiagram
 
 ## Empirical Evaluation & Results
 
-### 1. machine learning Prioritization (Stage 1)
-We evaluated the ensemble models on a held-out test set (80/20 split) using 5-fold cross-validation. Decision-tree ensembles accurately recover the ground-truth scientific ranking from raw physical parameters without data leakage, with **LightGBM** achieving the highest ranking accuracy and recovering **99%** of the maximum possible scientific utility in the top-50 selection (Regret@50 $= 0.010$):
+### 1. Stage 1: recovering the constructed index
+
+80/20 split, 5-fold CV, `random_state=42`. Near-perfect ranking is expected: $R_p$, $\rho_p$, $T_{\text{eq}}$, $a$, $T_{\text{eff}}$, and detectability enter both the label and $\mathbf{X}$. CV $\pm$ values are standard deviations across 5 folds.
 
 | Model | NDCG@50 | MAP@50 | Spearman $\rho$ | Kendall $\tau$ | Regret@50 | $R^2$ | RMSE | CV Spearman $\rho$ |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -98,20 +97,23 @@ We evaluated the ensemble models on a held-out test set (80/20 split) using 5-fo
 | **Random Forest** | 0.977 | 1.000 | 0.972 | 0.882 | 0.024 | 0.943 | 0.066 | $0.966 \pm 0.004$ |
 | **Gradient Boosting** | 0.975 | 0.985 | 0.984 | 0.929 | 0.030 | 0.968 | 0.050 | $0.981 \pm 0.004$ |
 
-### 2. Campaign Scheduling & Telemetry (Stage 2)
-The five schedulers were simulated over a **30-round campaign (300 observations total)** across 20 stochastically repeated trials, varying the random seeds to generate unique weather sequences, initial exoplanetary orbital phases, and integration cost overheads. The **Adaptive Scheduler** achieves **$99.87\% \pm 0.42\%$** of the perfect-knowledge Oracle reference, outperforming static priority rankings and single-objective greedy baselines near-perfectly:
+Hold out `{pl_rade, pl_dens, pl_eqt, pl_insol}` via `STRICT_HOLDOUT_FEATURES` in `src/data_acquisition.py` to test ranking from remaining columns. That ablation is not Table 1.
+
+### 2. Stage 2: scheduler comparison (simulation)
+
+30 rounds, 20 trials. Reported $\pm$ is the sample standard deviation over those trials (not a 95% CI). No pairwise significance tests. The Oracle uses true priority in the *same* utility; Adaptive $\approx$ 99.9% of Oracle is an implementation check. The comparison that matters is Adaptive vs Static / Detectability Greedy / Uncertainty Greedy.
 
 | Rank | Scheduler | Composite Score | Cum. Gain | Regret vs Oracle | Diversity Score | Priority Coverage | Observed |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| 1 | **Oracle (Reference)** | **100.00%** | $5.7391 \pm 0.081$ | $0.0000 \pm 0.000$ | $0.6003 \pm 0.012$ | $0.7746 \pm 0.015$ | 236 |
-| 2 | **Adaptive Scheduler (Ours)** | **$99.87\% \pm 0.42\%$** | $5.7872 \pm 0.125$ | $0.0000 \pm 0.000$ | $0.5992 \pm 0.015$ | $0.7713 \pm 0.018$ | 237 |
+| 1 | **Oracle (same objective)** | **100.00%** | $5.7391 \pm 0.081$ | $0.0000 \pm 0.000$ | $0.6003 \pm 0.012$ | $0.7746 \pm 0.015$ | 236 |
+| 2 | **Adaptive Scheduler** | **$99.87\% \pm 0.42\%$** | $5.7872 \pm 0.125$ | $0.0000 \pm 0.000$ | $0.5992 \pm 0.015$ | $0.7713 \pm 0.018$ | 237 |
 | 3 | **Detectability Greedy** | $95.55\% \pm 1.25\%$ | $6.4366 \pm 0.224$ | $0.0000 \pm 0.000$ | $0.5537 \pm 0.024$ | $0.6776 \pm 0.035$ | 188 |
 | 4 | **Static Priority** | $80.40\% \pm 2.85\%$ | $3.9961 \pm 0.345$ | $0.3037 \pm 0.052$ | $0.5344 \pm 0.038$ | $0.9854 \pm 0.005$ | 174 |
 | 5 | **Uncertainty Greedy** | $66.05\% \pm 4.15\%$ | $3.0187 \pm 0.421$ | $0.4740 \pm 0.078$ | $0.4767 \pm 0.045$ | $0.6723 \pm 0.052$ | 143 |
 
-*   **The "Mini-Neptune" Detectability Trap:** The *Detectability Greedy* baseline achieves the highest raw gain ($6.4366 \pm 0.224$) because it concentrates telescope time exclusively on large, close-in gas giants which are easy to observe. However, it completely neglects smaller terrestrial worlds, leading to poor priority coverage and diversity.
-*   **Static Over-Concentration Pathology:** The *Static Priority* baseline targets high-priority worlds, but fails to adapt to dynamic visibility or persistent weather, wasting valuable telescope hours pointing at obscured systems during storms.
-*   **Oracle Numerical outperformance:** Schedulers that greedily target easy-to-observe planets can numerically exceed the Oracle Reference in raw cumulative gain (e.g. $6.4366$ vs $5.7391$) because the Oracle Reference optimizes the *joint, multi-objective utility function* over the campaign. It balances priority, diversity, and efficiency, maximizing the Composite Campaign Score ($100\%$) rather than a single-objective raw metric.
+*   **Mini-Neptune trap:** Detectability Greedy wins raw gain by concentrating on large, close-in planets and loses diversity and priority coverage.
+*   **Static priority:** High mean priority, poor adaptation to weather/visibility, lower cumulative gain.
+*   **Oracle vs gain:** Detectability Greedy can beat the Oracle on raw gain because the Oracle does not maximize that scalar.
 
 ### 3. Parameter Sensitivity Analysis (Stage 2.5)
 We conducted an extensive sensitivity and boundary analysis across our fixed parameters ($\varepsilon, \tau, \rho$) to verify campaign robustness:
@@ -126,9 +128,9 @@ We conducted an extensive sensitivity and boundary analysis across our fixed par
 
 ---
 
-## 🎨 Interactive 3D Web Dashboard
+## Visualization dashboard
 
-To visualize active campaign execution, we developed a state-of-the-art **Interactive 3D Web Dashboard** using HTML5, CSS3, Vanilla JavaScript, **Three.js** (for 3D Keplerian orbits and celestial coordinate coordinate spheres), and **Plotly.js** (for dynamic campaign telemetry). The dashboard runs fully **offline** (`file:///` protocol) by embedding campaign results directly inside `data_store.js`, bypassing browser CORS blocks:
+A Three.js / Plotly page in `dashboard/` is for inspecting campaign logs. It is not part of the scientific result. Open `dashboard/index.html` locally, or run `streamlit run dashboard/app.py`.
 
 <p align="center">
   <img src="plots/predicted_vs_actual.png" width="45%" alt="Predicted vs Actual" />
@@ -136,13 +138,13 @@ To visualize active campaign execution, we developed a state-of-the-art **Intera
   <em>Figures: Dynamic visual feedback. Left: Predicted vs. actual priority scores showing Narrow target alignment. Right: Dynamic Pareto frontier tracking scheduler optimization trajectories in Gain-Diversity space.</em>
 </p>
 
-### Key Dashboard Features
-1.  **Live Reprioritization Leaderboard:** Planets reorder in real-time inside the campaign leaderboard using smooth CSS flex transitions as the rounds advance.
-2.  **Astronomical AI Reasoning Panel:** Provides mathematical "+/-" explanations of scheduling decisions for every target (e.g., `+ High uncertainty reduction potential`, `- High slew separation cost`).
-3.  **Sky Map / Galactic Coordinate View:** Toggles between local 3D Keplerian orbital views and a coordinate sphere showing exoplanet coordinate distributions colored by priority.
-4.  **Exploration vs. Exploitation Gauge:** Renders active dials representing the dynamic time-decaying weight mix ($\alpha_t, \beta_t$).
-5.  **Multi-Telescope Operations:** Simulates coordinated campaigns between **JWST**, a **Survey Telescope (TESS-like)**, and a **Ground-Based Observatory**, tracking telescope utilization.
-6.  **Physical Sound Design (Web Audio API):** Synthesizes high-fidelity chimes (radar sweeps, data ticks, success chords) offline using browser-native oscillators.
+### Dashboard notes
+1. Live leaderboard of scheduled targets.
+2. Text explanations of utility terms (priority, uncertainty, cost).
+3. Sky / orbit views of the catalog.
+4. Exploration vs exploitation weight gauges.
+5. Optional multi-telescope *simulation* (JWST-like / TESS-like / ground) — not real observatory APIs.
+6. Optional Web Audio cues (engineering only; not in the paper abstract).
 
 ---
 
@@ -164,9 +166,9 @@ water/
 │   ├── observation_simulator.py   # Closed-loop transit observation simulator and noise model
 │   └── evaluation.py              # 7 ranking and campaign evaluation metrics, visual plotting scripts
 ├── dashboard/                     # Web Dashboard Files
-│   ├── index.html                 # 3D Interactive Web Dashboard interface (dark-mode glassmorphism)
+│   ├── index.html                 # Offline dashboard
 │   ├── main.js                    # Controller: Three.js planetarium, Plotly.js charts, Web Audio synth
-│   ├── style.css                  # Custom styling (premium academic layout, responsive grid)
+│   ├── style.css                  # Dashboard layout
 │   ├── data_store.js              # Pre-serialized campaign results (bypasses browser CORS blockages)
 │   └── app.py                     # Companion Python-driven 5-panel Streamlit dashboard
 ├── data/                          # Campaign Datasets
@@ -183,7 +185,7 @@ water/
 │   ├── s2_diversity.png
 │   └── s2_pareto_frontier.png
 ├── report/                        # Journal Manuscript Drafts
-│   ├── main.tex                   # LaTeX preprinted preprint source (37 pages, Section 8.3 expanded)
+│   ├── main.tex                   # Manuscript
 │   └── references.bib             # Bibliography BibTeX database
 └── .gitignore
 ```
@@ -200,8 +202,8 @@ To install dependencies and run the exoplanet active scheduling pipeline locally
 git clone https://github.com/rushikesh-D69/water.git
 cd water
 
-# Install required dependencies
-pip install xgboost lightgbm shap scipy scikit-learn matplotlib seaborn requests joblib streamlit plotly
+# Install pinned dependencies
+pip install -r requirements.txt
 
 # Run the Stage 2 Campaign Scheduling Pipeline Jupyter Notebook
 jupyter lab stage2_pipeline.ipynb
@@ -226,20 +228,27 @@ Both stages of our framework are packaged as interactive, fully automated notebo
 
 ---
 
-## 🛰️ Data Source
+## Data source
 
-Our pipeline utilizes real exoplanet measurements compiled by the **NASA Exoplanet Archive**:
-*   **Table:** `pscomppars` (Planetary Systems Composite Parameters)
-*   **Access:** Table Access Protocol (TAP) API using Astronomical Data Query Language (ADQL)
-*   **Coverage:** 6,284 confirmed exoplanets, filtered to 5,522 ML-ready systems after removing objects lacking orbital coordinate data or stellar host properties. Missing masses are imputed using Chen & Kipping (2017) mass-radius scaling laws, and missing equilibrium temperatures are derived from stellar parameters via the Stefan-Boltzmann relation assuming a Bond albedo $A_B = 0.3$.
+NASA Exoplanet Archive `pscomppars` via TAP/ADQL. Snapshot frozen **2026-05-26**: 6,284 raw rows, 5,522 after requiring radius/Teff/semi-major-axis/Teq. Missing masses: Chen & Kipping (2017) piecewise power laws. Missing $T_{\text{eq}}$: Stefan-Boltzmann, Bond albedo 0.3. Re-querying the live archive will not reproduce this catalog.
 
 ---
 
-##  Key References
+## Reproducibility
 
-1.  **Kopparapu et al. (2013, 2014):** *Habitable Zones Around Main-Sequence Stars: New Estimates*. Circumstellar habitable zone effective flux boundary formulations.
-2.  **Schulze-Makuch et al. (2011):** *A Two-Tiered Complexity/Habitability Classification Scheme for Exoplanets*. Earth Similarity Index (ESI) formulation.
-3.  **Batalha et al. (2018):** *An Information-Theoretic Optimization Framework for Exoplanet Spectroscopy Surveys*. Shannon entropy atmospheric retrieval optimization concepts.
-4.  **Chen & Kipping (2017):** *Probabilistic Forecasting of the Masses and Radii of Exoplanets*. Empirical exoplanet mass-radius relations.
-5.  **Savransky et al. (2016):** *The Exoplanet Open-Source Imaging Mission Simulator (EXOSIMS)*. Space mission campaign simulation concepts.
-6.  **Lundberg & Lee (2017):** *A Unified Approach to Interpreting Model Predictions*. Game-theoretic SHAP feature attributions.
+- `requirements.txt` pins package versions.
+- Default RNGs: `random_state=42` (split, CV, quantile transformer, ensembles).
+- Stage 2: 20 integer seeds for weather / phase / cost.
+- Manuscript: `report/main.tex`. Code availability: this repository.
+
+---
+
+## References
+
+1. Kopparapu et al. (2013, 2014): habitable-zone flux limits.
+2. Schulze-Makuch et al. (2011): Earth Similarity Index.
+3. Batalha et al. (2018), *Strategies for Constraining the Atmospheres of Temperate Terrestrial Planets with JWST*, ApJL 856 L34. JWST/TRAPPIST-1 observing strategy and information-content analysis — not a survey-optimization framework.
+4. Chen & Kipping (2017): mass–radius forecasting.
+5. Savransky & Garrett (2016): EXOSIMS / WFIRST-AFTA coronagraph yield modeling.
+6. Lubin et al. (2026): AstroQ cadenced ILP scheduler (Keck/KPF).
+7. Lundberg & Lee (2017): SHAP.

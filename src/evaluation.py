@@ -6,7 +6,7 @@ Stage 2 Evaluation Metrics + Comparison Engine
 Metrics:
   1. Cumulative Scientific Gain     — total knowledge acquired per round
   2. Telescope Utilization          — obs_time / total_time
-  3. Regret@K vs Oracle             — absolute regret vs OracleScheduler upper bound
+  3. Regret@K vs Oracle             — absolute regret vs perfect-knowledge Oracle
   4. Observation Efficiency         — Gain / Cost per round
   5. Uncertainty Reduction Rate     — delta_sigma / round
   6. Exploration Ratio              — unique targets / total budget
@@ -26,36 +26,14 @@ import matplotlib.gridspec as gridspec
 from pathlib import Path
 from typing import Dict, List
 
-# ── Theme ─────────────────────────────────────────────────────────────────────
-DARK_BG = "#0d1117"
-PANEL   = "#161b22"
-ACCENT  = "#22b5a0"
-GOLD    = "#f0a500"
-PINK    = "#c9ada7"
-TEXT    = "#e6edf3"
-MUTED   = "#8b949e"
-BLUE    = "#7bccf6"
-
-SCHEDULER_COLORS = {
-    "Static Priority":           GOLD,
-    "Detectability Greedy":      PINK,
-    "Uncertainty Greedy":        BLUE,
-    "Adaptive Scheduler":        ACCENT,
-    "Oracle":                    "#ffffff",   # white — theoretical upper bound
-}
+from src.plot_style import (
+    PAPER_BG, PANEL, ACCENT, GOLD, PINK, TEXT, MUTED, BLUE, SPINE, GRID, DPI,
+    SCHEDULER_COLORS, SCHEDULER_STYLES, style_ax as _style_ax, legend, savefig,
+    export_ieee_figures,
+)
 
 PLOTS_DIR = Path(__file__).resolve().parent.parent / "plots"
 PLOTS_DIR.mkdir(exist_ok=True)
-
-
-def _style_ax(ax, title="", xlabel="", ylabel=""):
-    ax.set_facecolor(PANEL)
-    for sp in ax.spines.values():
-        sp.set_edgecolor("#30363d")
-    ax.tick_params(colors=MUTED)
-    if title:  ax.set_title(title, color=TEXT, fontsize=11)
-    if xlabel: ax.set_xlabel(xlabel, color=TEXT)
-    if ylabel: ax.set_ylabel(ylabel, color=TEXT)
 
 
 # =============================================================================
@@ -297,266 +275,204 @@ def build_comparison_table(
 
 def plot_cumulative_gain(results: Dict[str, dict]):
     """Cumulative scientific gain per round — main comparison plot."""
-    fig, ax = plt.subplots(figsize=(12, 6))
-    fig.patch.set_facecolor(DARK_BG)
-    _style_ax(ax, "Cumulative Scientific Gain per Round", "Round", "Cumulative Scientific Gain")
+    fig, ax = plt.subplots(figsize=(7.2, 3.6))
+    _style_ax(ax, "Cumulative scientific gain per round", "Round", "Cumulative scientific gain")
 
     for name, res in results.items():
         logs = res["logs_df"]
         if logs.empty:
             continue
-        color = SCHEDULER_COLORS.get(name, TEXT)
-        lw    = 3 if name == "Adaptive Scheduler" else 1.5
-        ls    = "-" if name == "Adaptive Scheduler" else "--"
-        ax.plot(logs["round"], logs["cum_sci_gain"], color=color,
-                lw=lw, ls=ls, label=name, alpha=0.9)
-        # Final value annotation
+        st = SCHEDULER_STYLES.get(name, dict(color=TEXT, ls="-", marker="o", lw=1.5, ms=4))
+        ax.plot(logs["round"], logs["cum_sci_gain"], color=st["color"],
+                lw=st["lw"], ls=st["ls"], marker=st["marker"], ms=st["ms"],
+                markevery=4, label=name)
         ax.annotate(f"{logs['cum_sci_gain'].iloc[-1]:.3f}",
                     xy=(logs["round"].iloc[-1], logs["cum_sci_gain"].iloc[-1]),
-                    color=color, fontsize=9, ha="left", va="center")
+                    xytext=(6, {"Adaptive Scheduler": 8, "Oracle": -10}.get(name, 0)),
+                    textcoords="offset points",
+                    color=st["color"], fontsize=8, ha="left", va="center")
 
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
-    ax.grid(axis="y", color="#30363d", alpha=0.5)
-    fig.suptitle("Stage 2: Adaptive vs Baseline Schedulers", color=TEXT, fontsize=13)
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_cumulative_gain.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    legend(ax)
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_cumulative_gain.png")
 
 
 def plot_uncertainty_evolution(results: Dict[str, dict]):
     """Mean prediction uncertainty over rounds per scheduler."""
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-    fig.patch.set_facecolor(DARK_BG)
+    fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.6))
 
     for name, res in results.items():
-        logs  = res["logs_df"]
-        color = SCHEDULER_COLORS.get(name, TEXT)
-        lw    = 2.5 if name == "Adaptive Scheduler" else 1.5
+        logs = res["logs_df"]
         if logs.empty:
             continue
+        st = SCHEDULER_STYLES.get(name, dict(color=TEXT, ls="-", marker="o", lw=1.5, ms=4))
         axes[0].plot(logs["round"], logs["mean_sigma_before"],
-                     color=color, lw=lw, label=name, alpha=0.85)
+                     color=st["color"], lw=st["lw"], ls=st["ls"],
+                     marker=st["marker"], ms=st["ms"], markevery=4, label=name)
         axes[1].plot(logs["round"], logs["mean_priority"],
-                     color=color, lw=lw, label=name, alpha=0.85)
+                     color=st["color"], lw=st["lw"], ls=st["ls"],
+                     marker=st["marker"], ms=st["ms"], markevery=4, label=name)
 
     for ax, title, ylabel in zip(axes,
-        ["Mean Prediction Uncertainty (sigma) per Round",
-         "Mean Priority of Selected Targets per Round"],
-        ["Mean sigma", "Mean Priority Score"]):
+        ["Mean prediction uncertainty per round",
+         "Mean priority of selected targets"],
+        [r"Mean $\sigma$", "Mean priority score"]):
         _style_ax(ax, title, "Round", ylabel)
-        ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT, fontsize=8)
-        ax.grid(axis="y", color="#30363d", alpha=0.4)
+        legend(ax, fontsize=7)
 
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_uncertainty_evolution.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_uncertainty_evolution.png")
 
 
 def plot_weight_decay(n_rounds: int = 30, beta_0: float = 0.30, tau: float = 15.0):
     """Visualise the exploration weight decay schedule for the adaptive scheduler."""
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor(DARK_BG)
-    _style_ax(ax, "Adaptive Scheduler: Exploration-Exploitation Weight Schedule",
-              "Round", "Weight Value")
+    fig, ax = plt.subplots(figsize=(6.4, 3.4))
+    _style_ax(ax, "Adaptive weight schedule (renormalized)", "Round", "Weight")
 
     rounds  = np.arange(1, n_rounds + 1)
     beta_t  = beta_0 * np.exp(-rounds / tau)
     alpha_t = np.full_like(rounds, 0.50, dtype=float)
     gamma   = np.full_like(rounds, 0.20, dtype=float)
-
-    # Normalize
     total   = alpha_t + beta_t + gamma
-    ax.plot(rounds, alpha_t / total, color=ACCENT, lw=2, label="alpha (uncertainty) — constant exploration")
-    ax.plot(rounds, beta_t / total,  color=GOLD,   lw=2, label=f"beta_t (priority) — decays (tau={tau})")
-    ax.plot(rounds, gamma / total,   color=PINK,   lw=2, label="gamma (detectability) — constant")
-    ax.axvline(tau, color=MUTED, lw=1, ls=":", alpha=0.7, label=f"tau = {tau} rounds")
-
-    ax.fill_between(rounds, 0, beta_t / total, alpha=0.08, color=GOLD)
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
-    ax.grid(axis="y", color="#30363d", alpha=0.4)
-    ax.set_ylim(0, 1.0)
-
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_weight_decay.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    ax.plot(rounds, alpha_t / total, color=BLUE,  lw=2, ls="-",  label=r"$\alpha_t$ (uncertainty)")
+    ax.plot(rounds, beta_t / total,  color=GOLD,  lw=2, ls="--", label=fr"$\beta_t$ (priority, $\tau={tau:g}$)")
+    ax.plot(rounds, gamma / total,   color=PINK, lw=2, ls="-.", label=r"$\gamma_t$ (detectability)")
+    ax.axvline(tau, color=MUTED, lw=1, ls=":", label=fr"$\tau={tau:g}$")
+    ax.fill_between(rounds, 0, beta_t / total, alpha=0.12, color=GOLD)
+    legend(ax, loc="upper left", ncol=2, fontsize=8)
+    ax.set_ylim(0, 1.15)
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_weight_decay.png")
 
 
 def plot_weather_sequence(weather_history: List[float]):
     """AR(1) weather quality across rounds."""
-    fig, ax = plt.subplots(figsize=(12, 4))
-    fig.patch.set_facecolor(DARK_BG)
-    _style_ax(ax, "AR(1) Weather Quality Across Rounds (rho=0.65)", "Round", "Weather Quality")
+    fig, ax = plt.subplots(figsize=(6.4, 2.8))
+    _style_ax(ax, r"AR(1) weather quality ($\rho=0.65$)", "Round", "Weather quality")
 
     rounds = np.arange(1, len(weather_history) + 1)
-    ax.fill_between(rounds, 0, weather_history, alpha=0.25, color=BLUE)
-    ax.plot(rounds, weather_history, color=BLUE, lw=1.5)
-    ax.axhline(0.65, color=MUTED, lw=1, ls="--", alpha=0.6, label="Fair weather threshold")
+    ax.fill_between(rounds, 0, weather_history, alpha=0.18, color=BLUE)
+    ax.plot(rounds, weather_history, color=BLUE, lw=1.6)
+    ax.axhline(0.65, color=MUTED, lw=1, ls="--", label="Fair-weather threshold")
     ax.set_ylim(0, 1.05)
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
-
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_weather_sequence.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    legend(ax)
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_weather_sequence.png")
 
 
 def plot_regret(results: Dict[str, dict], oracle_cum_gain: float = None):
     """Regret vs Oracle (or best scheduler) per round."""
-    fig, ax = plt.subplots(figsize=(12, 5))
-    fig.patch.set_facecolor(DARK_BG)
+    fig, ax = plt.subplots(figsize=(7.2, 3.4))
 
     if oracle_cum_gain is None:
         oracle_cum_gain = max(r["cumulative_gain"] for r in results.values())
-        title = "Regret vs Best Scheduler per Round"
+        title = "Regret vs best scheduler per round"
     else:
-        title = "Regret vs Oracle (Perfect Knowledge) per Round"
+        title = "Regret vs Oracle per round"
 
     _style_ax(ax, title, "Round", "Regret")
 
     for name, res in results.items():
-        logs   = res["logs_df"]
-        color  = SCHEDULER_COLORS.get(name, TEXT)
-        lw     = 2.5 if name == "Adaptive Scheduler" else 1.5
+        logs = res["logs_df"]
         if logs.empty or name == "Oracle":
             continue
+        st = SCHEDULER_STYLES.get(name, dict(color=TEXT, ls="-", marker="o", lw=1.5, ms=4))
         regret = compute_regret(logs, oracle_cum_gain)
-        ls = "-" if name == "Adaptive Scheduler" else "--"
-        ax.plot(logs["round"], regret, color=color, lw=lw, ls=ls, label=name)
+        ax.plot(logs["round"], regret, color=st["color"], lw=st["lw"], ls=st["ls"],
+                marker=st["marker"], ms=st["ms"], markevery=4, label=name)
 
-    ax.axhline(0, color="#ffffff", lw=1.5, ls=":", alpha=0.6, label="Oracle (upper bound)")
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
-    ax.grid(axis="y", color="#30363d", alpha=0.4)
-
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_regret.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    ax.axhline(0, color=TEXT, lw=1.0, ls=":", label="Oracle (perfect-knowledge ref.)")
+    legend(ax)
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_regret.png")
 
 
 def plot_diversity(diversity_scores: Dict[str, dict]):
     """
-    Radar/bar chart of Campaign Diversity Scores across schedulers.
+    Bar chart of Campaign Diversity Scores across schedulers.
     Shows 5 dimensions: stellar type, temperature, orbital, mass, distance.
     """
     dims = ["stellar_type_entropy", "temperature_diversity",
             "orbital_diversity", "mass_diversity", "distance_coverage"]
-    labels = ["Stellar Type\nEntropy", "Temperature\nDiversity",
-              "Orbital\nDiversity", "Mass\nDiversity", "Distance\nCoverage"]
+    labels = ["Stellar type", "Temperature", "Orbital", "Mass", "Distance"]
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    fig.patch.set_facecolor(DARK_BG)
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.8))
 
-    # Left: grouped bar chart
     ax = axes[0]
-    ax.set_facecolor(PANEL)
-    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-    ax.tick_params(colors=MUTED)
-
-    x      = np.arange(len(dims))
+    _style_ax(ax, "Campaign diversity by dimension", "", "Diversity [0, 1]")
+    x = np.arange(len(dims))
     n_sched = len(diversity_scores)
-    width   = 0.8 / n_sched
+    width = 0.8 / max(n_sched, 1)
 
     for i, (name, scores) in enumerate(diversity_scores.items()):
-        color  = SCHEDULER_COLORS.get(name, TEXT)
-        vals   = [scores.get(d, 0.0) for d in dims]
+        color = SCHEDULER_COLORS.get(name, TEXT)
+        vals = [scores.get(d, 0.0) for d in dims]
         offset = (i - n_sched / 2 + 0.5) * width
-        ax.bar(x + offset, vals, width * 0.9, label=name, color=color, alpha=0.85)
+        ax.bar(x + offset, vals, width * 0.9, label=name, color=color, edgecolor=SPINE, linewidth=0.4)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, color=TEXT, fontsize=8)
+    ax.set_xticklabels(labels, fontsize=8)
     ax.set_ylim(0, 1.0)
-    ax.set_title("Campaign Diversity: 5-Dimensional Coverage", color=TEXT, fontsize=11)
-    ax.set_ylabel("Diversity Score [0,1]", color=TEXT)
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT, fontsize=8)
-    ax.grid(axis="y", color="#30363d", alpha=0.3)
+    legend(ax, fontsize=7)
 
-    # Right: overall diversity score bar
     ax2 = axes[1]
-    ax2.set_facecolor(PANEL)
-    for sp in ax2.spines.values(): sp.set_edgecolor("#30363d")
-    ax2.tick_params(colors=MUTED)
-
-    names  = list(diversity_scores.keys())
+    _style_ax(ax2, "Overall campaign diversity", "Diversity [0, 1]", "")
+    names = list(diversity_scores.keys())
     totals = [diversity_scores[n].get("diversity_score", 0.0) for n in names]
     colors = [SCHEDULER_COLORS.get(n, TEXT) for n in names]
-    bars   = ax2.barh(names, totals, color=colors, alpha=0.85)
+    bars = ax2.barh(names, totals, color=colors, edgecolor=SPINE, linewidth=0.4)
     for bar, val in zip(bars, totals):
         ax2.text(val + 0.01, bar.get_y() + bar.get_height() / 2,
-                 f"{val:.3f}", va="center", color=TEXT, fontsize=9)
-    ax2.set_xlim(0, 1.1)
-    ax2.set_title("Overall Campaign Diversity Score", color=TEXT, fontsize=11)
-    ax2.set_xlabel("Diversity Score [0,1]\n(higher = wider parameter-space coverage)", color=TEXT)
-    ax2.tick_params(colors=TEXT)
-    ax2.grid(axis="x", color="#30363d", alpha=0.3)
+                 f"{val:.3f}", va="center", color=TEXT, fontsize=8)
+    ax2.set_xlim(0, 1.15)
 
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_diversity.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_diversity.png")
 
 
 def plot_observation_efficiency(results: Dict[str, dict]):
     """Observation efficiency (gain per telescope hour) per round."""
-    fig, ax = plt.subplots(figsize=(12, 5))
-    fig.patch.set_facecolor(DARK_BG)
-    _style_ax(ax, "Observation Efficiency (Gain / Telescope Hour) per Round",
-              "Round", "Efficiency")
+    fig, ax = plt.subplots(figsize=(7.2, 3.4))
+    _style_ax(ax, "Observation efficiency (gain / hour)", "Round", "Efficiency")
 
     for name, res in results.items():
-        logs  = res["logs_df"]
-        color = SCHEDULER_COLORS.get(name, TEXT)
-        lw    = 2.5 if name == "Adaptive Scheduler" else 1.5
-        ls    = "-" if name == "Adaptive Scheduler" else "--"
+        logs = res["logs_df"]
         if logs.empty:
             continue
+        st = SCHEDULER_STYLES.get(name, dict(color=TEXT, ls="-", marker="o", lw=1.5, ms=4))
         eff = compute_observation_efficiency(logs)
         ax.plot(logs["round"], eff.rolling(3, min_periods=1).mean(),
-                color=color, lw=lw, ls=ls, label=name, alpha=0.9)
+                color=st["color"], lw=st["lw"], ls=st["ls"],
+                marker=st["marker"], ms=st["ms"], markevery=4, label=name)
 
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
-    ax.grid(axis="y", color="#30363d", alpha=0.4)
-
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_efficiency.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    legend(ax)
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_efficiency.png")
 
 
 def plot_pareto_frontier(results: Dict[str, dict], df: "pd.DataFrame"):
     """
     Generate a 2D Pareto Frontier plot showing Gain vs Diversity.
-    Marker color/size represents Observation Efficiency.
+    Marker size represents observation efficiency.
     """
-    fig, ax = plt.subplots(figsize=(10, 6))
-    fig.patch.set_facecolor(DARK_BG)
-    _style_ax(ax, "Telescope Scheduling Pareto Frontier", "Cumulative Scientific Gain", "Campaign Diversity Score")
+    fig, ax = plt.subplots(figsize=(6.4, 4.2))
+    _style_ax(ax, "Gain vs diversity", "Cumulative scientific gain", "Campaign diversity")
 
     points = []
     for name, res in results.items():
         gain = res["cumulative_gain"]
         obs  = res["obs_history_df"]
         logs = res["logs_df"]
-        eff  = float(compute_observation_efficiency(logs).mean()) if not logs.empty else 0.0
-        
-        if df is not None and not obs.empty and "planet_idx" in obs.columns:
+        eff  = float(compute_observation_efficiency(logs).mean()) if not logs.empty else float(res.get("_eff", 0.0))
+        if "_diversity" in res:
+            div = float(res["_diversity"])
+        elif df is not None and not obs.empty and "planet_idx" in obs.columns:
             obs_idx = obs["planet_idx"].unique().tolist()
             div = compute_campaign_diversity(obs_idx, df)["diversity_score"]
         else:
             div = 0.0
         points.append((name, gain, div, eff))
 
-    # Identify non-dominated frontier dynamically
-    # A point (g, d) is non-dominated if no other point (og, od) has og >= g and od >= d (with at least one strict)
     frontier = []
     for name, g, d, eff in points:
         dominated = False
@@ -568,43 +484,26 @@ def plot_pareto_frontier(results: Dict[str, dict], df: "pd.DataFrame"):
                 break
         if not dominated:
             frontier.append((name, g, d, eff))
-
-    # Sort frontier by gain ascending to draw a smooth line
     frontier = sorted(frontier, key=lambda x: x[1])
 
-    # Plot all schedulers
     for name, g, d, eff in points:
-        color = SCHEDULER_COLORS.get(name, TEXT)
-        size = 150 + eff * 3000  # scale size by efficiency
-        
-        # Plot point
-        scatter = ax.scatter(g, d, color=color, s=size, label=name, alpha=0.9, edgecolors="#30363d", zorder=3)
-        
-        # Annotate point
-        ax.annotate(f"{name}\n(Eff: {eff:.4f})", xy=(g, d), xytext=(8, -8),
-                    textcoords="offset points", color=TEXT, fontsize=8,
-                    arrowprops=None, zorder=4)
+        st = SCHEDULER_STYLES.get(name, dict(color=TEXT, marker="o", ms=6))
+        size = 80 + eff * 1600
+        ax.scatter(g, d, color=st["color"], s=size, marker=st.get("marker", "o"),
+                   edgecolors=SPINE, linewidths=0.6, zorder=3, label=name)
 
-    # Plot Pareto Frontier line
     if len(frontier) > 1:
         fx = [f[1] for f in frontier]
         fy = [f[2] for f in frontier]
-        ax.plot(fx, fy, color=ACCENT, linestyle="--", linewidth=2.0, alpha=0.8, label="Pareto Frontier", zorder=2)
-        
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
-    ax.grid(color="#30363d", alpha=0.3, zorder=1)
-    
-    # Give some breathing room in limits
+        ax.plot(fx, fy, color=MUTED, linestyle="--", linewidth=1.2, zorder=2)
+
+    legend(ax, fontsize=7, loc="lower right")
     gains = [p[1] for p in points]
     divs  = [p[2] for p in points]
-    ax.set_xlim(min(gains) * 0.9, max(gains) * 1.1)
-    ax.set_ylim(min(divs) * 0.9, min(1.0, max(divs) * 1.1))
-
-    plt.tight_layout()
-    out = PLOTS_DIR / "s2_pareto_frontier.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot] Saved -> {out}")
+    ax.set_xlim(min(gains) * 0.92, max(gains) * 1.08)
+    ax.set_ylim(min(divs) * 0.92, min(1.0, max(divs) * 1.08))
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "s2_pareto_frontier.png")
 
 
 
@@ -664,4 +563,66 @@ def run_full_evaluation(
 
     print("\n[Eval] Scheduler Comparison:")
     print(comparison_df.to_string(index=False))
+    export_ieee_figures()
     return comparison_df
+
+
+def regenerate_paper_plots_from_logs(data_dir=None):
+    """Rebuild IEEE-print Stage 2 figures from saved campaign CSVs."""
+    data_dir = Path(data_dir or Path(__file__).resolve().parent.parent / "data")
+    name_files = {
+        "Adaptive Scheduler":   "s2_adaptive_scheduler_logs.csv",
+        "Detectability Greedy": "s2_detectability_greedy_logs.csv",
+        "Static Priority":      "s2_static_priority_logs.csv",
+        "Uncertainty Greedy":   "s2_uncertainty_greedy_logs.csv",
+        "Oracle":               "s2_oracle_logs.csv",
+    }
+    results = {}
+    for name, fn in name_files.items():
+        p = data_dir / fn
+        if not p.exists():
+            print(f"[Eval] missing {p}")
+            continue
+        logs = pd.read_csv(p)
+        results[name] = {
+            "logs_df": logs,
+            "cumulative_gain": float(logs["cum_sci_gain"].iloc[-1]),
+            "obs_history_df": pd.DataFrame(),
+        }
+    comp = data_dir / "stage2_comparison.csv"
+    if comp.exists():
+        cdf = pd.read_csv(comp)
+        for _, row in cdf.iterrows():
+            name = row["Scheduler"]
+            if name in results:
+                results[name]["_diversity"] = float(row["Diversity Score"])
+                results[name]["_eff"] = float(row["Obs. Efficiency"])
+                results[name]["cumulative_gain"] = float(row["Cum. Sci. Gain"])
+    if not results:
+        print("[Eval] no Stage 2 logs found")
+        return
+    plot_cumulative_gain(results)
+    plot_uncertainty_evolution(results)
+    plot_weight_decay()
+    adapt = results.get("Adaptive Scheduler", {}).get("logs_df")
+    if adapt is not None and "weather" in adapt.columns:
+        plot_weather_sequence(adapt["weather"].tolist())
+    plot_regret(results, oracle_cum_gain=results.get("Oracle", {}).get("cumulative_gain"))
+    plot_observation_efficiency(results)
+    plot_pareto_frontier(results, df=None)
+
+    proc = data_dir / "exoplanets_processed.csv"
+    if proc.exists():
+        from src.data_acquisition import plot_feature_correlations, ML_FEATURES
+        df = pd.read_csv(proc)
+        plot_feature_correlations(df, ML_FEATURES)
+    export_ieee_figures(names=[
+        "s2_weather_sequence.png",
+        "s2_weight_decay.png",
+        "s2_cumulative_gain.png",
+        "s2_pareto_frontier.png",
+    ])
+
+
+if __name__ == "__main__":
+    regenerate_paper_plots_from_logs()

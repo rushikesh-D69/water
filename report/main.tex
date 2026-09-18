@@ -38,7 +38,7 @@
     linkcolor=lightblue,
     citecolor=tealaccent,
     urlcolor=lightblue,
-    pdftitle={An Autonomous Decision Framework for Resource-Constrained Exoplanet Characterization Campaigns},
+    pdftitle={A Simulation Framework for Adaptive Multi-Objective Scheduling of Exoplanet Characterization Campaigns},
     pdfauthor={Rushikesh},
 }
 
@@ -86,7 +86,7 @@
 \begin{document}
 
 %% ---- Title & Metadata ---------------------------------------
-\title{\textbf{An Autonomous Decision Framework for Resource-Constrained Exoplanet Characterization Campaigns}}
+\title{\textbf{A Simulation Framework for Adaptive Multi-Objective Scheduling of Exoplanet Characterization Campaigns}}
 
 \author{
     \textbf{Rushikesh} \\
@@ -101,13 +101,13 @@
 \onehalfspacing
 
 \begin{abstract}
-Next-generation space observatories, such as the James Webb Space Telescope (JWST) and the planned Habitable Worlds Observatory (HWO), face a fundamental resource allocation challenge. While thousands of confirmed exoplanets are cataloged, spectroscopic characterization of their atmospheres requires substantial telescope integration time. Consequently, the order and choice of observation targets have immense scientific consequences.
+Spectroscopic characterization of exoplanet atmospheres is expensive in telescope time. Static target lists do not react to time-varying visibility or weather, and single-objective greedy policies concentrate on easy-to-observe mini-Neptunes. This paper describes a \emph{simulation} framework and scheduling policy for that setting; it does not evaluate JWST or Habitable Worlds Observatory operations.
 
-We present a unified, two-stage autonomous framework to optimize campaign efficiency. In the first stage, we establish target prioritization via machine learning over a continuous utility function derived from astrophysical first principles. We mathematically derive this utility from a conjunctive habitability assumption under conditional dependence, justified by an additive smoothing prior ($\varepsilon = 0.1$) to preserve non-zero support and prevent rank collapse. Epistemic uncertainty in our prioritization predictions is calibrated using tree ensemble variance.
+Stage~1 constructs a continuous priority score from habitable-zone flux limits, a rocky-composition proxy, and an Earth Similarity Index, then trains tree ensembles to recover that score from NASA Exoplanet Archive catalog columns. Because the label is a deterministic function of those columns, near-perfect ranking is expected and is not evidence of independent astrophysical inference. Ensemble variance is used only as a cheap exploration signal for Stage~2.
 
-In the second stage, we reframe campaign operations as a constrained sequential optimization problem. We develop an active scheduling engine that dynamically selects visible targets under time-varying visibility and weather constraints, driven by an exponential weight decay schedule to transition the campaign from early epistemic entropy reduction (exploration) to late-stage utility maximization (exploitation).
+Stage~2 treats campaign execution as constrained sequential selection under simulated visibility and an AR(1) weather process. An exponential weight-decay schedule mixes exploration, priority, and detectability. Across 20 simulated campaigns, the adaptive policy outperforms static and single-objective greedy baselines on a composite of gain, diversity, efficiency, and priority coverage (mean $\pm$ standard deviation). A perfect-knowledge Oracle that optimizes the same utility is an implementation check, not a generalization test.
 
-Evaluating our framework on 5,522 planets from the NASA Exoplanet Archive, we show that tree-based regressors (Random Forest, XGBoost, Gradient Boosting, LightGBM) accurately recover the priority ranking from raw observables, achieving a Normalized Discounted Cumulative Gain (NDCG@50) $> 0.97$, Spearman $\rho > 0.97$, and Regret@50 $< 0.03$. Active campaign scheduling simulations demonstrate that our adaptive scheduler matches $99.87\% \pm 0.42\%$ of an idealized perfect-knowledge reference scheduler, dramatically outperforming static priority rankings and single-objective greedy baselines, which we show suffer from severe target over-concentration and parameter-space pathologies.
+Code, pinned dependencies, random seeds, and the NASA TAP snapshot date (2026-05-26) are recorded in the repository.
 \end{abstract}
 
 \newpage
@@ -116,65 +116,61 @@ Evaluating our framework on 5,522 planets from the NASA Exoplanet Archive, we sh
 \section{Introduction}
 \label{sec:intro}
 
-The discovery of exoplanets has transformed from a rare novelty into a highly statistical astronomical discipline. Since the confirmation of the first exoplanets in the 1990s, stellar radial velocity surveys and transit detection satellites, most notably the Kepler Space Telescope and the Transiting Exoplanet Survey Satellite (TESS) \cite{barclay2018}, have confirmed the existence of over 5,700 planets orbiting nearby stars. These missions have revealed an astonishing diversity in planetary architectures, sizes, masses, and stellar environments, suggesting that the galaxy contains billions of worlds.
+The discovery of exoplanets has become a statistical astronomical discipline. Radial-velocity surveys and transit missions, notably Kepler and the Transiting Exoplanet Survey Satellite (TESS) \cite{barclay2018}, have confirmed thousands of planets. Catalogs now contain a wide range of architectures, masses, and host stars.
 
-However, this data abundance has created a profound paradigm shift. The primary challenge in exoplanetary science is no longer finding new candidates, but characterizing their atmospheric compositions to identify biosignatures and assess surface habitability. This characterization is exceptionally photon-expensive. While transit detection requires measuring fractional decreases in stellar flux on the order of parts per thousand, atmospheric transmission and emission spectroscopy via space instruments require measuring changes in the planetary spectrum at the level of parts per million. To build up sufficient Signal-to-Noise Ratio (SNR) to confidently detect chemical species such as water vapor ($H_2O$), carbon dioxide ($CO_2$), methane ($CH_4$), or ozone ($O_3$) in a terrestrial atmosphere, observatories must dedicate dozens or even hundreds of hours of continuous integration time to a single target.
+The scarce resource is spectroscopic characterization, not detection. Transmission and emission spectroscopy require much higher signal-to-noise than a transit detection, often tens or hundreds of hours on a single target to constrain species such as $\mathrm{H_2O}$, $\mathrm{CO_2}$, $\mathrm{CH_4}$, or $\mathrm{O_3}$.
 
-This creates a severe resource allocation bottleneck for space telescopes. Highly sought-after instruments like the James Webb Space Telescope (JWST) must allocate their limited operational lifetimes across the entire astronomical community, leaving only a fraction of observing hours available for exoplanet spectroscopic characterization. Future flagship missions, such as the planned Habitable Worlds Observatory (HWO) and the Nancy Grace Roman Space Telescope, will operate under similar constraints. The high cost of spectroscopic observations means that the choice of which targets to observe, in what order, and under what conditions has profound implications for the scientific yield of the next generation of space science. Selecting targets inefficiently or failing to adapt to weather interruptions and visibility windows can result in hundreds of wasted telescope hours, significantly delaying the discovery of habitable environments.
+Flagship facilities, including the James Webb Space Telescope (JWST) and concepts such as the Habitable Worlds Observatory (HWO), allocate only a fraction of their time to exoplanet spectroscopy. Target choice and timing therefore matter. This paper does not schedule those facilities; it studies a simulated analogue of visibility, weather, and exposure budgets.
 
 Traditional target selection methodologies are structurally ill-equipped to manage this bottleneck. They typically rely on static, human-curated target tables that rank planets based on individual parameters (e.g., radius or distance) or evaluate them using static, binary classifications of habitability (such as whether a planet is located inside a conservative circumstellar habitable zone). These static listings are unable to react dynamically to real-time campaign environments. They fail to account for: (1) target visibility windows governed by the telescope's orbital path and pointing limits; (2) time-varying environmental overheads such as dome closures or stellar flares; (3) the physical integration cost required for specific targets; and (4) the high scientific value of actively selecting targets that resolve the underlying predictive uncertainties of our models.
 
-To resolve this bottleneck, we present a unified, two-stage autonomous decision framework that treats exoplanet campaigns as a dynamic, active optimization process. We establish the **Central Theoretical Identity** of this work:
+This paper studies that bottleneck in simulation. The contribution is a scheduling policy, not a two-stage architecture:
 
 \begin{noveltybox}
 \centering
-\textbf{The Central Theoretical Identity:}
+\textbf{Contribution.}
 \smallskip
 
-\textit{We formulate exoplanet observation scheduling as a sequential multi-objective information acquisition problem under uncertainty and telescope resource constraints.}
+\textit{Under simulated visibility and AR(1) weather constraints, entropy-decay-weighted exploration--exploitation scheduling outperforms static and single-objective greedy baselines on diversity and priority coverage. Detectability-greedy policies systematically concentrate on mini-Neptunes. Near-Oracle composite scores are an implementation check that the heuristic tracks its own objective, not evidence of operational skill.}
 \end{noveltybox}
 
-Under this framework, we replace static target lists with an active, adaptive scheduling engine. The telescope operates as a sequential decision agent that cycles between: (1) predicting the scientific priority and epistemic uncertainty of targets using leakage-free machine learning, and (2) dynamically scheduling observations under time-varying constraints to maximize cumulative scientific yield. By balancing physical target interest, target detectability, and the expected reduction in epistemic uncertainty, our framework maximizes the information acquired per unit of telescope time.
+The pipeline has two computational stages. Stage~1 builds a physically motivated priority index from catalog parameters and fits tree ensembles so that ranking and tree-variance uncertainty are available at scheduling time. Stage~2 is a constrained sequential scheduler. Visibility, weather, integration cost, and noise are synthetic generators (Section~\ref{sec:problem}); claims are scoped to that simulation. Validation against historical JWST or TESS constraint sets is left to future work.
 
-The remainder of this paper is structured as follows. Section 2 provides an exhaustive Literature Review, positioning our active, multi-objective design against traditional static indices, active learning, and robotic scheduling. Section 3 outlines the Formal Problem Formulation, modeling visibility, weather, integration costs, and the sequential decision process. Section 4 presents the Theoretical Foundations, deriving our priority score from the Conjunctive Habitability Assumption and mathematically justifying our regularizing smoothing prior. Section 5 details our Leakage-Free Machine Learning prioritization pipeline and ranking metrics. Section 6 presents the Active Campaign Scheduling Engine and the multi-objective Composite Campaign Score. Section 7 presents the Empirical Results, analyzing baseline pathologies, statistical confidence intervals, ablation studies, parameter sensitivities, and SHAP-based physical attributions. Section 8 discusses the Astrophysical and Operational implications, operational realism limits, and reinforcement learning roadmaps, and Section 9 concludes the paper. Detailed feature sets, parameters, configurations, and code implementations are provided in the Appendix.
+The remainder of this paper is organized as follows. Section~2 reviews habitability indices, adaptive exploration, JWST observing-strategy studies, and operational schedulers. Section~3 states the simulated sequential decision problem. Section~4 derives the priority score. Section~5 describes the catalog-recovery regressors and ranking metrics. Section~6 describes the schedulers and composite score. Section~7 reports simulation results, including baseline pathologies and SHAP attributions that recover the label formula. Section~8 discusses scope and limitations. Section~9 concludes. Feature lists, constants, and code excerpts are in the Appendix.
 
 %% ============================================================
 \section{Literature Review and Related Work}
 \label{sec:litreview}
 
-To contextualize the contributions of our autonomous decision framework, we review and analyze the existing literature across four relevant computational and astronomical domains. We highlight key milestones, identify systematic limitations in existing approaches, and establish how our framework bridges the gap between pure engineering control and active physical exploration.
+We review four strands of related work: static habitability indices, adaptive experimental design in astronomy, JWST observing-strategy studies, and operational telescope schedulers.
 
 \subsection{Traditional Habitability Indices and Static Target Prioritization}
 
-Early attempts to categorize and prioritize exoplanet targets focused on constructing static indices from raw physical parameters. The most notable milestone in this domain is the **Circumstellar Habitable Zone (CHZ)** theory established by Kopparapu et al.\ (2013, 2014) \cite{kopparapu2013, kopparapu2014}. By modeling planetary climate systems using one-dimensional radiative-convective equilibrium codes, they derived the effective stellar flux limits ($S_{\text{eff}}$) at which rocky planets with $H_2O$-rich atmospheres can maintain liquid surface water. While CHZ boundaries provide an invaluable physical baseline, they are traditionally used as binary classification gates (habitable vs.\ non-habitable). This binary framing discards critical ordinal information, treating a planet centered in the HZ identically to one located at the runaway greenhouse boundary.
+Early attempts to categorize and prioritize exoplanet targets focused on constructing static indices from raw physical parameters. The most notable milestone in this domain is the Circumstellar Habitable Zone (CHZ) theory established by Kopparapu et al.\ (2013, 2014) \cite{kopparapu2013, kopparapu2014}. By modeling planetary climate systems using one-dimensional radiative-convective equilibrium codes, they derived the effective stellar flux limits ($S_{\text{eff}}$) at which rocky planets with $H_2O$-rich atmospheres can maintain liquid surface water. While CHZ boundaries provide an invaluable physical baseline, they are traditionally used as binary classification gates (habitable vs.\ non-habitable). This binary framing discards critical ordinal information, treating a planet centered in the HZ identically to one located at the runaway greenhouse boundary.
 
-To provide a continuous metric, Schulze-Makuch et al.\ (2011) proposed the **Earth Similarity Index (ESI)** \cite{schulze2011}. The ESI applies a weighted geometric mean across four planetary properties (radius, bulk density, escape velocity, and surface temperature) to rank planets on a continuous $[0,1]$ scale relative to Earth. While the ESI represents a significant advance by preserving ranking contrast, it operates under a crucial limitation: it does not model observational feasibility. A planet with a perfect ESI of 0.98 is scientifically worthless if its apparent magnitude is too faint or its system distance is too great to allow spectroscopic follow-up.
+To provide a continuous metric, Schulze-Makuch et al.\ (2011) proposed the Earth Similarity Index (ESI) \cite{schulze2011}. The ESI applies a weighted geometric mean across four planetary properties (radius, bulk density, escape velocity, and surface temperature) to rank planets on a continuous $[0,1]$ scale relative to Earth. While the ESI represents a significant advance by preserving ranking contrast, it operates under a crucial limitation: it does not model observational feasibility. A planet with a perfect ESI of 0.98 is scientifically worthless if its apparent magnitude is too faint or its system distance is too great to allow spectroscopic follow-up.
 
-Furthermore, many subsequent machine learning approaches that attempt to predict ESI or HZ membership suffer from severe **data leakage** (e.g., including HZ boundary distances directly as input features to predict HZ class). This circular formulation yields artificially inflated model performance that cannot generalize to raw, unclassified systems. Our framework addresses these limitations by utilizing HZ and ESI constructs exclusively inside the weak-supervision label builder, enforcing a strict no-leakage feature boundary.
+Machine learning models that predict ESI or HZ membership can leak if the same quantities used to build the label are also used as features. We do not claim a no-leakage boundary. Stage~1 excludes the \emph{derived} HZ, ESI, and rocky scores from $\mathbf{X}$, but retains their catalog inputs. The experiment is therefore catalog-index recovery (Section~\ref{sec:ml}).
 
 \subsection{Active Learning and Bayesian Optimization in Astronomy}
 
-Our framework draws conceptual inspiration from the fields of active learning and Bayesian optimization, which optimize data acquisition by iteratively sampling the most informative targets. In astronomical literature, this is closely related to **Bayesian Adaptive Exploration (BAE)**, pioneered by Loredo (2004) \cite{loredo2004}. BAE applies Bayesian decision theory to experimental design, choosing observing cadences that maximize expected information gain.
+Our scheduler is conceptually related to active learning and Bayesian experimental design. In astronomy this is closely related to Bayesian Adaptive Exploration (BAE), described by Loredo (2004) \cite{loredo2004}. BAE applies Bayesian decision theory to experimental design, choosing observing cadences that maximize expected information gain.
 
-In radial velocity exoplanet searches, Ford (2008) developed adaptive scheduling algorithms that dynamically choose observation times to resolve degeneracies in orbital parameters \cite{ford2008}. These algorithms build a Gaussian Process surrogate model over the radial velocity curve, using an acquisition function to place observations at phases with maximum predictive variance.
+In radial velocity exoplanet searches, Ford (2008) developed adaptive scheduling algorithms that choose observation times using Bayesian inference and information-theoretic criteria \cite{ford2008}. Monte Carlo simulations in that work indicate that adaptive cadences can detect more planets and constrain orbits more accurately than fixed schedules. Standard Bayesian optimization still does not, by itself, encode multi-target visibility, weather, and discrete exposure budgets of the kind we simulate in Section~\ref{sec:problem}.
 
-While highly successful for individual targets, standard Bayesian optimization algorithms cannot scale to large exoplanet populations where observations are constrained by complex, time-varying orbital visibility, weather, and discrete budget limits. They assume that any target can be observed at any time, which is physically impossible in multi-target space telescope campaigns. Our framework bridges this gap by integrating active learning's uncertainty reduction directly into a constrained operational scheduling engine.
+\subsection{JWST Observing Strategy and Information Content}
 
-\subsection{Information-Theoretic Survey Planning}
+Batalha et al.\ (2018) studied JWST strategies for temperate terrestrial planets, using TRAPPIST-1 as a benchmark \cite{batalha2018}. They combine expected spectral precision (including a proposed partial-saturation NIRSpec Prism mode) with an information-content analysis of transmission and emission spectroscopy, and conclude that the dominant absorbing gas may be detectable by about the tenth transit, with diminishing returns from further stacking, while MIRI LRS emission is unlikely to yield robust composition constraints. That paper is an instrument-and-target observing-strategy study, not a general survey-optimization or campaign-scheduling framework.
 
-To establish a mathematically rigorous metric for scientific yield, astronomers have increasingly adopted information theory. Batalha et al.\ (2018) established a major milestone by proposing an **information-theoretic optimization framework** for exoplanet characterization surveys \cite{batalha2018}. By modeling planetary atmospheres using atmospheric retrieval codes, they quantified the scientific return of a spectroscopic observation as the decrease in the Shannon entropy of the posterior distribution of atmospheric parameters (such as metallicity and carbon-to-oxygen ratio).
-
-Their simulations demonstrated that prioritizing observations based on expected entropy reduction yields a more accurate characterization of the exoplanet population than static, uniform observing allocations. However, their optimization assumes perfect operational execution, neglecting visibility windows, time-varying weather, and exposure budget limits. We operationalize these information-theoretic concepts in Section~\ref{sec:ml}, framing tree ensemble prediction variance as *epistemic entropy* and deriving the **Scientific Gain** metric ($\text{SG}_i = \hat{\sigma}_i \times D_i$) as an approximate, computationally efficient information-acquisition operator.
+We do not operationalize their retrieval-entropy objective. In Section~\ref{sec:ml} we use tree-ensemble prediction variance as a cheap exploration bonus and define Scientific Gain as $\text{SG}_i = \hat{\sigma}_i \times D_i$. That quantity is a scheduling heuristic, not a Shannon-entropy reduction over atmospheric posteriors.
 
 \subsection{Robotic Telescope Scheduling and Mission Simulators}
 
-At the operational layer, scheduling telescope observations is a highly constrained scheduling problem. Historically, this has been managed using deterministic scheduling algorithms and metaheuristics. For space-based direct imaging missions, Savransky et al.\ (2016) developed the **Exoplanet Open-Source Imaging Mission Simulator (EXOSIMS)** \cite{savransky2016}. EXOSIMS integrates orbital mechanics, instrument performance models, and static scheduling heuristics to simulate multi-year direct-imaging campaigns, evaluating scientific yields across different mission architectures.
+At the operational layer, scheduling telescope observations is a constrained combinatorial problem. For space-based direct imaging, Savransky \& Garrett (2016) developed the Exoplanet Open-Source Imaging Mission Simulator (EXOSIMS) and used it for WFIRST-AFTA coronagraph yield modeling \cite{savransky2016}. EXOSIMS integrates orbital mechanics, instrument models, and scheduling heuristics to simulate multi-year imaging campaigns.
 
-At the ground-based observatory layer, automated frameworks like **AstroQ** employ mixed-integer linear programming (MILP) to schedule cadenced observations, managing pointing limits, instrument configurations, and visibility constraints.
+At the ground-based layer, Lubin et al.\ (2026) describe AstroQ, an integer linear program for cadenced observations, demonstrated on Keck Planet Finder Doppler programs \cite{lubin2026astroq}. AstroQ optimizes visit placement under accessibility and cadence constraints; it does not rank targets by a habitability index or update an exploration term from model variance.
 
-While EXOSIMS and AstroQ represent state-of-the-art operational scheduling, they operate using rigid, pre-planned target lists. They lack the ability to perform active learning, adjust targets based on predicted scientific priorities, or dynamically update target databases to resolve prediction uncertainties.
-
-Our framework integrates the strengths of these disparate domains. We combine the physical rigor of Kopparapu HZ boundaries and Schulze-Makuch ESI with the active uncertainty reduction of Bayesian adaptive exploration, the information-theoretic metrics of Batalha, and the operational constraint modeling of modern telescope simulators, creating a unified autonomous decision loop.
+EXOSIMS and AstroQ are operational mission and observatory tools. This work is a simulated policy comparison: a decay-weighted multi-objective greedy heuristic versus static and single-objective baselines under synthetic visibility and weather. It is not a replacement for those systems.
 
 %% ============================================================
 \section{Formal Problem Formulation}
@@ -378,36 +374,40 @@ This uniform calibration:
     \item Ensures the target behaves as a smooth, linear utility metric directly suitable for scheduling.
 \end{enumerate}
 
-\subsection{The No-Leakage Guarantee}
+\subsection{Label--Feature Overlap}
 
-To establish a mathematically rigorous machine learning pipeline, we enforce a strict separation between the feature space used to construct the priority labels and the feature space exposed to the predictive models.
+The priority label is a deterministic function of catalog columns (Appendix~\ref{app:priority}). Derived scores $f_{\text{thermal}}$, $f_{\text{esi}}$, and $f_{\text{rocky}}$ are not passed to the regressors. Their inputs are. Table~\ref{tab:leakage} records that overlap; it does not assert a no-leakage guarantee.
 
 \begin{table}[H]
 \centering
-\caption{No-leakage audit: explicit separation of label and feature domains}
+\caption{Label construction versus ML features. Derived scores are held out; the physical columns that define them are not.}
 \label{tab:leakage}
 \begin{tabular}{lcc}
 \toprule
-Astrophysical Parameter & Used in Ground-Truth Label & Used as Predictive ML Feature \\
+Quantity & Enters $P_{\text{astro}}$ / $D$ blend & In $\mathbf{X}$ (31 features) \\
 \midrule
-HZ factor ($f_{\text{thermal}}$) & \checkmark & $\times$ \\
-Earth Similarity Index ($E$) & \checkmark & $\times$ \\
-Rocky proxy ($f_{\text{rocky}}$) & \checkmark & $\times$ \\
-Diversity nudges ($f_{\text{ecc}}, f_{\text{met}}, f_{\text{age}}$) & \checkmark & $\times$ \\
+HZ factor $f_{\text{thermal}}$ (derived) & yes & no \\
+ESI $E$ (derived) & yes & no \\
+Rocky proxy $f_{\text{rocky}}$ (derived) & yes & no \\
 \midrule
-Planetary parameters ($R_p, M_p, \rho_p, P_{\text{orb}}, a, e, i, T_{\text{eq}}, F_{\text{insol}}$) & $\times$ & \checkmark \\
-Stellar parameters ($T_{\text{eff}}, R_\star, M_\star, L_\star, [\text{Fe/H}], \log g, \text{age}$) & $\times$ & \checkmark \\
-Observational metrics (Apparent magnitudes, transit depth, SNR, $D$) & $\times$ & \checkmark \\
+$R_p$, $\rho_p$ (rocky proxy and ESI) & yes & yes \\
+$T_{\text{eq}}$ (ESI) & yes & yes \\
+$F_{\text{insol}}$ (correlated with HZ / $T_{\text{eq}}$) & no (direct) & yes \\
+$a$, $T_{\text{eff}}$, $L_\star$ (HZ geometry) & yes & yes \\
+$e$, [Fe/H], age (diversity nudges) & yes & yes \\
+Detectability $D$ ($15\%$ blend) & yes & yes \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-This no-leakage guarantee ensures that the machine learning models must learn the underlying mappings between raw observables and astrophysical utility, preventing circular, trivial learning. We plot the full feature correlation matrix in Figure~\ref{fig:correlations} to verify the lack of correlation between ML input features and label constructs.
+Stage~1 therefore tests whether tree ensembles recover a physically motivated composite index from correlated catalog features. MAP@50 $= 1.000$ and RMSE $\approx 0.047$ on a $[0,1]$ target are the expected signature of that design, not evidence that the model learned astrophysics from independent observables. SHAP attributions (Section~\ref{sec:results}) rank $T_{\text{eq}}$, $T_{\text{eff}}$, $a$, and $R_p$ highest---the same quantities that define the label. A stricter hold-out of $\{R_p, \rho_p, T_{\text{eq}}, F_{\text{insol}}\}$ is implemented as \texttt{STRICT\_HOLDOUT\_FEATURES} in the code; that ablation is the appropriate test of ranking from remaining observables and is not the experiment reported in Table~\ref{tab:ml_results}.
+
+Figure~\ref{fig:correlations} shows correlations among catalog columns. It does not demonstrate independence of $\mathbf{X}$ from the label.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.65\textwidth]{../plots/feature_correlations.png}
-\caption{Feature correlation matrix. Strong physical correlations exist between $T_{\text{eq}}$ and semi-major axis $a$, as expected. The lack of correlation between raw observable features and core label columns (HZ factors, ESI) verifies the no-leakage design.}
+\caption{Feature correlation matrix among catalog columns used as ML inputs. Physical correlations (e.g., $T_{\text{eq}}$ with $a$) are expected. This figure does not establish independence between features and the priority label.}
 \label{fig:correlations}
 \end{figure}
 
@@ -444,12 +444,12 @@ Furthermore, these weights define a specific vector in the multi-objective space
 While these weights are fixed in our primary evaluation, our framework's sequential decision structure is fully compatible with dynamic weight elicitation. Future work can implement \textbf{Bayesian preference elicitation} or \textbf{Inverse Reinforcement Learning (IRL)} to dynamically learn these weights from real-world astronomical schedules, allowing the system to match the subjective preferences of different scientific committees.
 
 %% ============================================================
-\section{Target Prioritization via Leakage-Free Regression}
+\section{Catalog-Index Recovery via Tree Ensembles}
 \label{sec:ml}
 
 \subsection{Data Acquisition and Imputation}
 
-Data is obtained from the Planetary Systems Composite Parameters (\texttt{pscomppars}) table of the NASA Exoplanet Archive using Table Access Protocol (TAP) API queries. The raw query returns 6,284 records. The specific ADQL query schema is detailed in Appendix D.
+Data are obtained from the Planetary Systems Composite Parameters (\texttt{pscomppars}) table of the NASA Exoplanet Archive using TAP ADQL queries \cite{nasa_archive}. The query used in this repository returned 6{,}284 records. The catalog was frozen on 2026-05-26; the live archive changes, so a later query will not reproduce this row count. The ADQL is given in Appendix~\ref{app:adql}.
 
 Where physical parameters are missing, we perform scientifically grounded imputations:
 \begin{itemize}
@@ -467,7 +467,7 @@ Where physical parameters are missing, we perform scientifically grounded imputa
     \label{eq:teq_calc}
     \end{equation}
 \end{itemize}
-After filtering and cleaning, we obtain $5{,}522$ ML-ready exoplanets characterized by 31 features. The complete, leakage-free feature set is summarized in Appendix A.
+After filtering and cleaning, we obtain $5{,}522$ planets and 31 catalog features (Appendix~\ref{app:features}). Those features include the physical columns that define the label (Table~\ref{tab:leakage}).
 
 \subsection{Observation Feasibility Analysis}
 
@@ -523,11 +523,9 @@ For the Random Forest model, we estimate the epistemic prediction uncertainty $\
 \end{equation}
 where $h_m$ represents the $m$-th decision tree in the ensemble, and $M = 300$.
 
-\subsection{Information-Theoretic Framing of Scientific Gain}
+\subsection{Scientific Gain Heuristic}
 
-We reframe the prediction uncertainty $\hat{\sigma}_i$ under an information-theoretic lens. We treat the predicted priority score as a random variable; the variance $\hat{\sigma}_i^2$ is directly proportional to the \textbf{epistemic entropy} regarding the target's physical parameters.
-
-An observation of planet $i$ acts as an operator that reduces this variance. We define the **Scientific Information Gain** of observing target $i$ as:
+We treat $\hat{\sigma}_i$ as a scheduling exploration bonus, not as Shannon entropy of an atmospheric retrieval. We define Scientific Gain of observing target $i$ as:
 \begin{equation}
 \text{SG}_i = \hat{\sigma}_i \times D_i
 \label{eq:scigain}
@@ -542,7 +540,7 @@ which represents the expected reduction in epistemic entropy scaled by the expec
 \end{figure}
 
 %% ============================================================
-\section{Active Operational Campaign Scheduling Engine}
+\section{Simulated Campaign Scheduler}
 \label{sec:scheduler}
 
 Transitioning from a static prioritization list to an active observation campaign requires an operational scheduler that satisfies the environmental and physical constraints outlined in Section~\ref{sec:problem}.
@@ -576,7 +574,7 @@ At round $t$, target scheduling is limited by:
 
 We simulate and compare five operational schedulers over a 30-round campaign:
 \begin{enumerate}
-    \item \textbf{Oracle Scheduler (Reference Upper Bound):} Serves as our idealized, perfect-knowledge scheduler reference. It has access to perfect future knowledge, scheduling targets by replacing the model's estimated priority mean $\hat{\mu}_i$ in the utility function (Eq.~\ref{eq:utility_decomp}) with the true, ground-truth priority score $P_i^{\text{true}}$. It serves as the upper-bound perfect-knowledge reference.
+    \item \textbf{Oracle Scheduler (same-objective upper bound):} Replaces $\hat{\mu}_i$ in Eq.~\ref{eq:utility_decomp} with the ground-truth priority $P_i^{\text{true}}$ and otherwise uses the same utility, constraints, and greedy selection as the Adaptive Scheduler. It is a perfect-knowledge implementation of the \emph{same} objective, not an independent scientific benchmark. Near-Oracle composite scores mainly show that the heuristic tracks that objective.
     \item \textbf{Adaptive Scheduler (Proposed):} Employs the predicted priority mean $\hat{\mu}_i$, predicted epistemic uncertainty $\hat{\sigma}_i$, and detectability $D_i$ inside the active utility function (Eq.~\ref{eq:utility_decomp}). It dynamically updates the target database at each round, reducing the uncertainty $\hat{\sigma}_i$ of observed targets by half upon completion of an observation. It uses the exponential weight decay schedule (Eq.~\ref{eq:decay}) to transition from active exploration to exploitation (Figure~\ref{fig:weight_decay}).
     \item \textbf{Detectability Greedy (Baseline):} A single-objective baseline that schedules visible targets prioritizing only their physical detectability $D_i$, maximizing the number of observed targets regardless of their habitability or scientific interest.
     \item \textbf{Static Priority (Baseline):} Schedules visible targets prioritizing only the predicted priority mean $\hat{\mu}_i$ (strict exploitation), without updating uncertainties or considering observational efficiency.
@@ -595,11 +593,11 @@ For all schedulers, the target utility is scaled by operational efficiency:
 \text{Utility}_i^{(t)} = \frac{\text{Gain}_i^{(t)} \cdot V_i^{(t)}}{C_i^{(t)}}
 \label{eq:scheduler_utility}
 \end{equation}
-At each round, targets with the highest $\text{Utility}_i^{(t)}$ are greedily selected and scheduled until the exposure budget $B^{(t)}$ is exhausted. This formulation maps exoplanet scheduling directly to a **Knapsack-like optimization problem** where integration cost represents target "weight", scientific utility represents "value", and $B^{(t)}$ is the knapsack capacity.
+At each round, targets with the highest $\text{Utility}_i^{(t)}$ are greedily selected until the exposure budget $B^{(t)}$ is exhausted. This is a greedy knapsack-style heuristic: integration cost is the item weight, utility is the value, and $B^{(t)}$ is the capacity.
 
 \subsection{Multi-Objective Campaign Score}
 
-To provide a rigorous evaluation framework, we define a **Composite Campaign Score** that assesses scheduling performance across four scientific objectives simultaneously:
+The composite score used for ranking schedulers is
 \begin{equation}
 \text{CompositeScore} = 0.35 \cdot G_{\text{norm}} + 0.25 \cdot D_{\text{norm}} + 0.20 \cdot E_{\text{norm}} + 0.20 \cdot P_{\text{norm}}
 \label{eq:composite_score}
@@ -613,33 +611,16 @@ where each component is normalized relative to the idealized reference scheduler
 \end{itemize}
 Under this formulation, the idealized Oracle obtains a score of exactly $100\%$, and all schedulers are graded on their percentage of idealized reference performance.
 
-\subsection{Computational Complexity and Scaling Analysis}
+\subsection{Computational Complexity}
 \label{sec:complexity}
 
-A key requirement for operational readiness is computational scalability, particularly for future surveys that will catalog hundreds of thousands of candidate targets. We analyze the computational complexity, memory footprints, and practical scaling behaviors of both stages of our framework:
+Inference and per-round selection are intended to be cheap relative to a campaign simulation, not flight software.
 
-\paragraph{Stage 1: Target Prioritization and Uncertainty Estimation.}
-The prioritization step requires a forward pass of our tree ensembles.
-\begin{itemize}
-    \item \textbf{Mathematical Complexity:} The inference complexity scales strictly as $\mathcal{O}(N \cdot M \cdot d)$, where $N$ is the number of cataloged exoplanets, $M$ is the number of estimators (e.g., $M = 300$ for Random Forest), and $d \approx 10$ is the average tree depth.
-    \item \textbf{Empirical Performance:} For our primary catalog of $N = 5{,}522$ targets, the entire prioritization and tree-ensemble variance calculation executes in $85.6$ milliseconds on a standard single-core CPU, translating to an average inference cost of $15.5\,\mu\text{s}$ per planet.
-    \item \textbf{Extrapolation to $100{,}000$ Targets:} Scaling to a massive catalog of $N = 100{,}000$ targets requires approximately $1.55$ seconds on a single core. This task is highly embarrassingly parallel: by distributing the inference across 8 CPU threads, the forward pass executes in under $200$ milliseconds.
-    \item \textbf{Memory Footprint:} The trained Random Forest model occupies $14.8\,\text{MB}$ in RAM, representing a negligible memory footprint that easily fits within the strict avionics hardware constraints of deep-space observatories.
-\end{itemize}
+\paragraph{Stage 1.}
+A tree-ensemble forward pass scales as $\mathcal{O}(N \cdot M \cdot d)$ with $N$ planets, $M$ trees, and average depth $d$. We do not report wall-clock microbenchmarks: no CPU model, trial count, or variance was recorded.
 
-\paragraph{Stage 2: Active Operational Campaign Scheduling.}
-At each campaign round $t$, the telescope must select an optimal subset of visible targets under time-varying constraints.
-\begin{itemize}
-    \item \textbf{Constraint Filtering and Cost Matching:} Filtering the catalog for planetary visibility ($V_i^{(t)} = 1$) and computing integration costs (Eq.~\ref{eq:cost_model}) requires a linear scan of the catalog, scaling as $\mathcal{O}(N)$.
-    \item \textbf{Target Utility Sorting:} Schedulers rank the visible pool by their dynamic utility (Eq.~\ref{eq:scheduler_utility}). Sorting the entire visible pool of size $N_{\text{vis}}$ has a worst-case complexity of $\mathcal{O}(N_{\text{vis}} \log N_{\text{vis}})$. In practice, we optimize this to $\mathcal{O}(N_{\text{vis}} \log K)$ by maintaining a min-heap of size $K$ (where $K \le 10$ is the maximum number of observations that can physically fit within a single round's exposure budget $B^{(t)} = 8.0$ hours).
-    \item \textbf{Dynamic Shortlist Selection:} By maintaining a shortlisted candidate pool of size $N_c = 100$ (representing the highest-priority visible targets), the active target selection runs in a mere $1.2$ milliseconds per round.
-    \item \textbf{Extrapolation to $100{,}000$ Targets:} If we bypass the shortlist and sort the entire visible pool of $100{,}000$ targets directly at every round, the selection step executes in under $15.0$ milliseconds.
-\end{itemize}
-
-\paragraph{Comparison with Exact Solvers.}
-Traditional telescope scheduling frameworks often frame target selection as a Mixed-Integer Linear Program (MILP) or a Traveling Salesperson Problem (TSP) with time windows, which are NP-hard and solve in $\mathcal{O}(2^N)$ worst-case time. Under large candidate pools ($N > 1{,}000$), exact solvers stall or fail to converge, requiring hours of compute time. 
-
-By reframing scheduling as a Knapsack-like greedy selection over a dynamically updated multi-objective utility function, our framework achieves near-optimal results (matching $99.87\% \pm 0.42\%$ of the Oracle) while maintaining a linear-logarithmic complexity of $\mathcal{O}(N \log K)$. This extreme efficiency guarantees that our framework can run in real-time onboard autonomous spacecraft, reacting instantaneously to sudden target detections, orbital anomalies, or instrument faults.
+\paragraph{Stage 2.}
+Visibility and cost scans are $\mathcal{O}(N)$. Ranking a visible pool of size $N_{\text{vis}}$ is $\mathcal{O}(N_{\text{vis}} \log N_{\text{vis}})$, or $\mathcal{O}(N_{\text{vis}} \log K)$ if a size-$K$ heap is used. Exact MILP/TSPTW observatory schedulers (e.g., AstroQ \cite{lubin2026astroq}) solve a different problem and are not compared on runtime here.
 
 %% ============================================================
 \section{Empirical Results and Analysis}
@@ -647,11 +628,11 @@ By reframing scheduling as a Knapsack-like greedy selection over a dynamically u
 
 \subsection{Target Prioritization Accuracy}
 
-We evaluate the four machine learning regressors on a held-out test set (80/20 split) using 5-fold cross-validation. Table~\ref{tab:ml_results} presents the results, demonstrating high ranking and predictive performance across all models.
+We evaluate the four regressors on a held-out test set (80/20 split, \texttt{random\_state=42}) and 5-fold shuffled cross-validation (same seed). Table~\ref{tab:ml_results} reports catalog-index recovery, not ranking from independent observables.
 
 \begin{table}[H]
 \centering
-\caption{Prioritization predictive accuracy and ranking metrics (test set)}
+\caption{Recovery of the constructed priority score from catalog features that overlap the label (test set). CV column is mean $\pm$ standard deviation across 5 folds, not a standard error of the mean. MAP@50 $= 1.000$ is expected under Table~\ref{tab:leakage}.}
 \label{tab:ml_results}
 \begin{tabular}{lcccccccc}
 \toprule
@@ -665,7 +646,7 @@ LightGBM          & \textbf{0.989} & \textbf{1.000} & \textbf{0.985} & \textbf{0
 \end{tabular}
 \end{table}
 
-All four ensemble models achieve NDCG@50 $> 0.975$ and Spearman rank correlation $\rho_s > 0.97$, demonstrating that machine learning can accurately recover the ground-truth scientific ranking from raw physical features without data leakage. LightGBM achieves the best overall performance, recovering 99\% of the maximum possible scientific utility in the top-50 selection (Regret@50 $= 0.010$) with stable cross-validation generalization. We display a visual compilation of our machine learning prioritization pipeline results in Figure~\ref{fig:ml_plots}.
+All four models achieve NDCG@50 $> 0.975$ and Spearman $\rho_s > 0.97$. That tightness, including CV standard deviations of $\pm 0.003$--$0.004$, is consistent with approximating a deterministic function of the inputs. LightGBM recovers 99\% of top-50 label mass (Regret@50 $= 0.010$). These numbers should not be read as a no-leakage generalization result. Figure~\ref{fig:ml_plots} shows the corresponding diagnostics.
 
 \begin{figure}[H]
 \centering
@@ -693,12 +674,12 @@ All four ensemble models achieve NDCG@50 $> 0.975$ and Spearman rank correlation
 \label{fig:ml_plots}
 \end{figure}
 
-Furthermore, we plot the native feature importances from our tree models in Figure~\ref{fig:feature_importance} to verify that physical observable features drive prediction, rather than circular leakage columns.
+Furthermore, we plot native feature importances in Figure~\ref{fig:feature_importance}. Dominance of $T_{\text{eq}}$, $T_{\text{eff}}$, $a$, and $R_p$ matches the label construction, not a leakage-free observable set.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.7\textwidth]{../plots/feature_importance.png}
-\caption{Native feature importances (top 15 features). Equilibrium temperature, stellar effective temperature, and semi-major axis represent the strongest physical drivers, consistent with physical constraints.}
+\caption{Native feature importances (top 15). $T_{\text{eq}}$, $T_{\text{eff}}$, $a$, and $R_p$ dominate, matching the columns that define the label.}
 \label{fig:feature_importance}
 \end{figure}
 
@@ -710,7 +691,7 @@ To establish robust statistical rigor and move beyond deterministic, single-run 
     \item \textbf{Target Orbital Phase Alignments:} Altering the initial orbital phases of all 5,522 planets in our catalog, which dynamically shifts their individual visibility windows ($V_i^{(t)}$) and introduces unique overlapping constraints.
     \item \textbf{Exposure Cost Overhead:} Scaling the integration costs ($C_i^{(t)}$) as weather spikes occur.
 \end{itemize}
-Evaluating across these diverse environmental trajectories ensures that the campaign results are robust to random noise and accurately capture the schedulers' resilience. Table~\ref{tab:scheduler_results} presents the mean performance and standard deviation across these 20 seeds.
+Each of 20 independent trials is a 30-round campaign with a distinct random seed controlling the AR(1) weather sequence, initial orbital phases (hence $V_i^{(t)}$), and cost noise. Table~\ref{tab:scheduler_results} reports the mean $\pm$ sample standard deviation over those 20 seeds, not a 95\% confidence interval. We do not run pairwise significance tests. Adaptive versus Static Priority differs by about 19 composite-score points while trial standard deviations are a few percent, so the ordering is unlikely to be a sampling fluke, but that is not a formal test.
 
 \begin{table}[H]
 \centering
@@ -730,7 +711,7 @@ Rank & Scheduler & Composite Score & Cum. Gain & Regret vs Oracle & Diversity Sc
 \end{tabular}
 \end{table}
 
-The Adaptive Scheduler achieves a Composite Score of $99.87\% \pm 0.42\%$, demonstrating high reliability across varying environmental conditions. It balances all four scientific objectives, obtaining high parameter-space diversity ($0.5992 \pm 0.015$) and strong priority coverage ($0.7713 \pm 0.018$). We display the round-by-round campaign progress of all schedulers in Figure~\ref{fig:telemetry} and Figure~\ref{fig:telemetry_additional}.
+The Adaptive Scheduler's composite score is $99.87\% \pm 0.42\%$ of the Oracle that optimizes the same utility. That proximity is expected: both policies use the same constraints, greedy knapsack step, and (up to substituting $\hat{\mu}$ for $P^{\text{true}}$) the same objective. The empirical claim is the gap to Static Priority ($80.40\% \pm 2.85\%$), Detectability Greedy ($95.55\% \pm 1.25\%$, high gain, low diversity/priority), and Uncertainty Greedy ($66.05\% \pm 4.15\%$). Figures~\ref{fig:telemetry}--\ref{fig:telemetry_additional} show round-by-round traces.
 
 \begin{figure}[H]
 \centering
@@ -779,14 +760,10 @@ Furthermore, we plot the sequential evolution of target priority and prediction 
 \label{fig:s2_uncertainty_evolution}
 \end{figure}
 
-\subsection{Oracle Reference and Numerical Outperformance Clarification}
+\subsection{Oracle Comparison}
 \label{sec:oracle_clarify}
 
-A subtle characteristic of our campaign results is that the Adaptive Scheduler slightly outperforms the Oracle Reference in raw cumulative gain ($5.7872 > 5.7391$), despite the Oracle possessing perfect future knowledge. This behavior is mathematically expected and does not represent an anomaly.
-
-The Oracle optimizes true-priority utility rather than the evaluation metric directly; therefore a single-objective detectability-biased strategy can numerically exceed Oracle gain while still underperforming in the multi-objective score. The Oracle Reference is styled as a perfect-knowledge utility scheduler: it replaces the noisy estimated priority mean $\hat{\mu}_i$ in the dynamic utility function (Eq.~\ref{eq:utility_decomp}) with the true priority score $P_i^{\text{true}}$. Under this formulation, the Oracle optimizes the *joint, multi-objective utility function* over the campaign. It does \textbf{not} directly maximize the single-objective cumulative gain. 
-
-Because the cumulative gain metric (Eq.~\ref{eq:scigain}) is biased toward detectability $D_i$ (expected efficiency per telescope hour), a scheduler that greedily targets easy gas giants (e.g., \textit{Detectability Greedy}) will achieve a numerically higher raw gain ($6.4366 \pm 0.224$). However, because it targets scientifically less interesting worlds, it is heavily penalized on priority coverage and diversity. The Oracle balances these competing dimensions, maximizing the joint composite score ($100.0\%$) while achieving a slightly lower raw gain. The Adaptive Scheduler matches this joint trade-off, coming within $0.13\%$ of the Oracle's composite score while displaying similar numerical balance.
+The Adaptive Scheduler can exceed the Oracle on raw cumulative gain ($5.7872 > 5.7391$) because the Oracle does not maximize that scalar. It uses true priority inside the same multi-objective utility. Detectability Greedy scores still higher on raw gain ($6.4366 \pm 0.224$) by concentrating on easy giants, and is penalized on diversity and priority coverage. Composite-score proximity to the Oracle is therefore a consistency check, not a scientific result. The result that can be falsified is the ranking versus static and single-objective greedy baselines under the simulated constraint generators.
 
 \subsection{Ablation Studies}
 \label{sec:ablation}
@@ -900,9 +877,9 @@ We analyze the trained regressors using SHAP (SHapley Additive exPlanations) gam
 The SHAP analysis (Figure~\ref{fig:shap_rf}) demonstrates that:
 \begin{enumerate}
     \item \textbf{Equilibrium Temperature ($T_{\text{eq}}$)} is the dominant driver across all models, as it represents the core thermal habitable zone constraint.
-    \item \textbf{Stellar Effective Temperature ($T_{\text{eff}}$)} and **Semi-Major Axis ($a$)** rank second and third, as they geometrically determine the habitable zone boundaries via Eq.~\ref{eq:seff} and Eq.~\ref{eq:hz_dist}.
+    \item \textbf{Stellar Effective Temperature ($T_{\text{eff}}$)} and \textbf{Semi-Major Axis ($a$)} rank second and third, as they geometrically determine the habitable zone boundaries via Eq.~\ref{eq:seff} and Eq.~\ref{eq:hz_dist}.
     \item \textbf{Planet Radius ($R_p$)} ranks fourth, serving as the primary constraint for rocky composition.
-    \item \textbf{Observational Features} contribute to the final priority score but rank lower, confirming that the prioritization is governed primarily by astrophysical interest rather than observational bias.
+    \item \textbf{Observational Features} also enter the score because detectability is a $15\%$ blend in the label. Ranking below $T_{\text{eq}}$ is consistent with that weight, not proof that astrophysics was learned independently of the formula.
 \end{enumerate}
 
 %% ============================================================
@@ -915,11 +892,13 @@ The campaign simulations expose a critical selection pathology in exoplanet tran
 
 Our two-stage framework addresses this selection bias by integrating physical priority and epistemic uncertainty into the active utility function. By utilizing the multiplicative utility score (which incorporates Kopparapu habitable zone boundaries and the Earth Similarity Index) and dynamically adjusting targets based on visibility, the Adaptive Scheduler actively prevents over-concentration on easy-to-observe but scientifically less interesting targets. This ensures that precious telescope hours are distributed across a diverse, scientifically interesting population of terrestrial and super-Earth worlds.
 
-\subsection{Operational Implications: Onboard Autonomous Schedulers}
+\subsection{Scope of the Simulation}
 
-Modern space telescope campaigns are scheduled weeks in advance by human committees, resulting in rigid target queues. While these queues are reliable, they cannot adapt to real-time changes in the space environment (e.g., stellar flares or solar pointing constraints) or dynamic discoveries.
+Single-objective detectability greedy concentrates on large, close-in planets---the mini-Neptune population that is easy to observe and less relevant to habitability ranking. The decay-weighted policy reduces that concentration in this simulation by mixing priority, uncertainty, and detectability. That is a statement about the simulated generators, not about JWST or HWO allocation.
 
-The performance of our Adaptive Scheduler—matching 99.87\% of the perfect-knowledge Oracle reference—strongly motivates the integration of autonomous, active scheduling engines directly into telescope control systems. Future space observatories, such as the Habitable Worlds Observatory, will operate at the Earth-Sun L2 point, where communication bandwidth is constrained. Equipping these observatories with autonomous schedulers that can dynamically adjust observation sequences based on real-time environmental quality, target visibility, and scientific gain will dramatically increase overall mission efficiency.
+\subsection{What This Does Not Claim}
+
+The Adaptive Scheduler tracking $\sim$99.9\% of a same-objective Oracle does not motivate onboard spacecraft control, avionics, or L2 autonomy. Visibility, weather, cost, and noise are synthetic. Real observatories use field-of-regard geometry, slew and settling, instrument modes, and human time-allocation committees. Those are listed as gaps in Section~\ref{sec:operational_realism}, not as features we have implemented.
 
 \subsection{Operational Realism \& Observational Realism Limitations}
 \label{sec:operational_realism}
@@ -952,7 +931,7 @@ While our simulation engine successfully incorporates dynamic visibility windows
     Managing a JWST-like FOR requires precise coupling with orbital ephemeris libraries (such as Astropy or SPICE). Our Stage 2 constraint engine is designed to seamlessly integrate these orbital ephemeris matrices: by replacing our simplified visibility simulator with real-world target coordinate projections, our scheduler can compute exact visibility windows and predict when high-priority targets are approaching their coordinate boundaries, dynamically scheduling observations before their windows close.
 \end{enumerate}
 
-Addressing these limits by coupling our active decision loop with real-world orbital ephemeris and instrument simulators represents a highly promising step toward mission-ready deployment for autonomous space observatories.
+Addressing these limits requires coupling to real ephemerides and instrument models. Until that is done, results remain a methods comparison in simulation.
 
 \subsection{Failure Modes and Realism Gaps}
 
@@ -973,20 +952,22 @@ While we employ a linear utility scheduler with exponential weight decay in this
 \section{Conclusions}
 \label{sec:conclusion}
 
-This work presents a unified, two-stage autonomous decision framework for exoplanet observation campaigns under resource constraints.
+This paper describes a simulation framework for ranking NASA catalog targets with a physically motivated composite index and for comparing scheduling heuristics under synthetic visibility and weather.
 
-In the first stage, we establish target prioritization using machine learning over a continuous utility function derived from first-principles of conditional exoplanet habitability. We mathematically derive this utility from a conjunctive habitability assumption, introducing a smoothing prior ($\varepsilon = 0.1$) to preserve non-zero support and prevent rank collapse. Epistemic uncertainty in our prioritization predictions is calibrated using tree ensemble variance.
+Stage~1 recovers that index from catalog columns that overlap the label. Tree ensembles reach NDCG@50 $> 0.97$ and MAP@50 $= 1.000$ because they are inverting a formula they were given the inputs to, not because they inferred habitability from independent observables.
 
-In the second stage, we reframe campaign operations as a constrained sequential optimization problem, developing an active scheduling engine that dynamically selects visible targets under time-varying visibility and weather constraints. We employ an exponential weight decay schedule to transition the campaign from early epistemic entropy reduction to late-stage utility maximization.
+Stage~2 is the claim that can be tested: under the simulated constraints, entropy-decay-weighted multi-objective greedy selection outperforms static priority and single-objective greedy baselines on diversity and priority coverage, while detectability-greedy falls into a mini-Neptune concentration. Composite-score proximity to a same-objective Oracle is an implementation check.
 
-Evaluating our framework on 5,522 exoplanets from the NASA Exoplanet Archive, we demonstrate that tree-based regressors accurately recover the scientific ranking, achieving NDCG@50 $> 0.97$, Spearman $\rho > 0.97$, and GBR/LightGBM Regret@50 $\le 0.010$. Active campaign scheduling simulations show that our adaptive scheduler matches $99.87\% \pm 0.42\%$ of an idealized perfect-knowledge reference scheduler, outperforming static priority rankings and single-objective greedy baselines, which suffer from severe target over-concentration and parameter-space pathologies.
-
-This framework demonstrates that combining machine learning prioritization with active, constraint-aware scheduling can dramatically increase the scientific efficiency of space observatories, helping to accelerate the characterization of habitable worlds beyond our solar system.
+All constraint, weather, cost, and noise processes are synthetic. The NASA catalog snapshot is dated 2026-05-26. Code, seeds, and pinned dependencies are in the repository.
 
 %% ============================================================
 \section*{Acknowledgments}
 
 This work utilized data from the NASA Exoplanet Archive, which is operated by the California Institute of Technology under contract with the National Aeronautics and Space Administration under the Exoplanet Exploration Program.
+
+\section*{Reproducibility and Code Availability}
+
+Source code is at \url{https://github.com/rushikesh-D69/water}. Dependencies are pinned in \texttt{requirements.txt}. Unless noted, Python RNGs use \texttt{random\_state=42} (train/test split, 5-fold CV shuffle, quantile transformer, tree ensembles). The 20 campaign trials use distinct integer seeds for weather, orbital phase, and cost noise. The NASA Exoplanet Archive TAP snapshot used here is dated 2026-05-26 (6{,}284 raw rows; 5{,}522 after filtering) \cite{nasa_archive}. The live archive changes; a new TAP query will not reproduce that catalog.
 
 %% ============================================================
 \bibliographystyle{plain}
@@ -999,15 +980,15 @@ This work utilized data from the NASA Exoplanet Archive, which is operated by th
 \section{Predictive ML Feature Set}
 \label{app:features}
 
-Table~\ref{tab:app_features} presents the complete, leakage-free feature set exposed to the machine learning regressors, detailing the units, categories, and physical meanings of each feature channel.
+Table~\ref{tab:app_features} lists the 31 catalog columns passed to the regressors. Several are inputs to the label (Table~\ref{tab:leakage}).
 
 \begin{longtable}{llcp{7.5cm}}
-\caption{Complete 31-dimensional ML predictive feature set} \label{tab:app_features} \\
+\caption{31-dimensional ML feature set. Includes physical columns used to construct the priority label.} \label{tab:app_features} \\
 \toprule
 Category & Feature Name & Unit & Physical Meaning / Description \\
 \midrule
 \endfirsthead
-\caption{Complete 31-dimensional ML predictive feature set (continued)} \\
+\caption{31-dimensional ML feature set, continued} \\
 \toprule
 Category & Feature Name & Unit & Physical Meaning / Description \\
 \midrule

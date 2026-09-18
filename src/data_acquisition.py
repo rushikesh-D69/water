@@ -3,16 +3,16 @@ data_acquisition.py  — v2.1
 ============================
 Stage 1: Exoplanet Probabilistic Prioritization Pipeline
 
-KEY DESIGN DECISIONS (v2.1):
-  - No data leakage: HZ boundaries and ESI are used ONLY for constructing the
-    target label (priority_score) via weak supervision. They are NEVER passed
-    as ML features.
-  - ML features contain ONLY raw astrophysical + observational parameters.
-  - Target is a CONTINUOUS priority score [0,1], not binary. This is a ranking
-    problem, not a classification problem.
-  - Observation feasibility is modelled explicitly (transit depth, SNR proxy,
-    distance penalty) and included as ML features.
+KEY DESIGN DECISIONS (v2.2):
+  - The label (priority_score) is a deterministic transform of catalog columns.
+  - Derived scores (HZ factor, ESI, rocky proxy) are NOT passed as ML features.
+    Their *inputs* (Rp, ρp, Teq, a, Teff, L*, detectability, ...) ARE features.
+    Stage 1 therefore recovers a composite index from correlated catalog columns;
+    it is not an independent-observable astrophysics task. See LABEL_INPUT_FEATURES.
+  - Target is a CONTINUOUS priority score [0,1] (ranking, not classification).
+  - Observation feasibility is modelled explicitly and blended into the label (15%).
   - Uncertainty is estimated post-prediction via ensemble variance.
+  - NASA TAP snapshot date is recorded in NASA_ARCHIVE_SNAPSHOT_DATE.
 
 Priority Score formula (v2.1):
   Step 1 — Soft geometric mean (avoids near-zero collapse):
@@ -25,10 +25,10 @@ Priority Score formula (v2.1):
     priority_score = QuantileTransformer(uniform).fit_transform(P_final)
 
 Scientific references:
-  - Kopparapu et al. (2013, 2014) Habitable Zone boundaries  [LABEL ONLY]
+  - Kopparapu et al. (2013, 2014) HZ fluxes: used to build the label; derived
+    hz_factor is not an ML feature; Teff, L*, a are.
   - Chen & Kipping (2017) empirical mass-radius imputation
-  - Earth Similarity Index (Schulze-Makuch et al. 2011)      [LABEL ONLY]
-  - Scientific Gain = uncertainty * detectability
+  - Schulze-Makuch et al. (2011) ESI: same pattern as HZ (derived score held out)
 """
 
 import os
@@ -55,6 +55,10 @@ PROCESSED_CSV = DATA_DIR / "exoplanets_processed.csv"
 
 # ---- NASA TAP config ---------------------------------------------------------
 NASA_TAP_URL = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
+# Date the repository catalog was frozen (git: data/exoplanets_processed.csv).
+# The live NASA Exoplanet Archive changes; re-running fetch_nasa_exoplanets()
+# will not reproduce the 6,284 / 5,522 counts reported in the paper.
+NASA_ARCHIVE_SNAPSHOT_DATE = "2026-05-26"
 
 COLUMNS = [
     "pl_name", "hostname", "sy_snum", "sy_pnum",
@@ -79,14 +83,9 @@ WHERE pl_rade IS NOT NULL OR pl_bmasse IS NOT NULL
 ORDER BY pl_name
 """
 
-# Theme constants for plots
-DARK_BG = "#0d1117"
-PANEL   = "#161b22"
-ACCENT  = "#22b5a0"
-GOLD    = "#f0a500"
-PINK    = "#c9ada7"
-TEXT    = "#e6edf3"
-MUTED   = "#8b949e"
+from src.plot_style import (
+    PAPER_BG, PANEL, ACCENT, GOLD, PINK, TEXT, MUTED, BLUE, SPINE, style_ax as _style_ax, legend, savefig,
+)
 
 
 # =============================================================================
@@ -111,6 +110,7 @@ def fetch_nasa_exoplanets(force_refresh=False):
 
     df = pd.read_csv(RAW_CSV, comment="#")
     print(f"[Data] Downloaded {len(df):,} records in {elapsed:.1f}s -> {RAW_CSV}")
+    print(f"[Data] Record TAP snapshot date as {NASA_ARCHIVE_SNAPSHOT_DATE} (or today's date if this is a new fetch).")
     return df
 
 
@@ -388,7 +388,8 @@ def compute_priority_score(df):
       Step 4 — Quantile normalize to uniform [0,1]:
         Smoother distribution for ranking models, uncertainty estimation, and RL.
 
-    All label components (H, R, E) are EXCLUDED from ML features (no leakage).
+    All derived scores (H, R, E) are excluded from ML features. Their catalog
+    inputs (Rp, rho, Teq, a, Teff, L*, detectability, ...) are not excluded.
     """
     from sklearn.preprocessing import QuantileTransformer
 
@@ -459,11 +460,20 @@ def compute_priority_score(df):
 
 
 # =============================================================================
-# 8. ML Feature Set  (leakage-free)
+# 8. ML Feature Set
 # =============================================================================
+# Catalog columns from which the label is a deterministic function.
+# These are still in ML_FEATURES (catalog-recovery experiment). Holding them
+# out is the honest "independent observable" ablation.
+LABEL_INPUT_FEATURES = [
+    "pl_rade", "pl_dens", "pl_eqt", "pl_insol",
+    "pl_orbsmax", "st_teff", "st_lum_linear",
+    "pl_orbeccen", "st_met", "st_age",
+    "detectability",
+]
 
-# RAW astrophysical + observability features only.
-# NO hz_factor, NO esi, NO hz_rv/rg/mg/em — those are label components.
+# RAW astrophysical + observability features. Derived HZ/ESI/rocky scores
+# are excluded; their inputs are not.
 ML_FEATURES = [
     # ---- Planet physics (raw) ----
     "pl_rade",          # Planet radius [R_earth]
@@ -499,6 +509,14 @@ ML_FEATURES = [
 
 TARGET = "priority_score"   # Continuous [0,1] — regression / ranking task
 
+# Reviewer ablation: drop the physical columns that enter ESI / rocky / HZ-adjacent
+# thermal terms most directly. Remaining features are correlated (e.g. Teff, a)
+# but do not include Rp, ρp, Teq, Finsol.
+STRICT_HOLDOUT_FEATURES = [
+    f for f in ML_FEATURES
+    if f not in {"pl_rade", "pl_dens", "pl_eqt", "pl_insol"}
+]
+
 
 def build_ml_dataset(df):
     """Filter to ML-ready rows, median-fill remaining NaNs, return clean df."""
@@ -521,48 +539,31 @@ def build_ml_dataset(df):
 # 9. Exploratory Visualisations
 # =============================================================================
 
-def _style_ax(ax, title="", xlabel="", ylabel=""):
-    ax.set_facecolor(PANEL)
-    for sp in ax.spines.values():
-        sp.set_edgecolor("#30363d")
-    ax.tick_params(colors=MUTED)
-    if title:  ax.set_title(title, color=TEXT, fontsize=12)
-    if xlabel: ax.set_xlabel(xlabel, color=TEXT)
-    if ylabel: ax.set_ylabel(ylabel, color=TEXT)
-
-
 def plot_priority_distribution(df):
     """Plot distribution of the priority score target."""
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-    fig.patch.set_facecolor(DARK_BG)
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.8))
 
-    # Priority score histogram
     ax = axes[0]
-    _style_ax(ax, "Priority Score Distribution", "Priority Score (target)", "Count")
+    _style_ax(ax, "Priority score distribution", "Priority score", "Count")
     ps = df["priority_score"].dropna()
-    n, bins, patches = ax.hist(ps, bins=60, color=ACCENT, alpha=0.85, edgecolor=DARK_BG)
-    ax.axvline(0.3, color=GOLD, lw=1.5, ls="--", label="Score >= 0.3 threshold")
-    ax.legend(facecolor=DARK_BG, edgecolor="#30363d", labelcolor=TEXT)
+    ax.hist(ps, bins=60, color=ACCENT, alpha=0.85, edgecolor=SPINE, linewidth=0.3)
+    ax.axvline(0.3, color=GOLD, lw=1.5, ls="--", label=r"Score $\geq 0.3$")
+    legend(ax)
 
-    # Radius vs Equilibrium Temperature, coloured by priority score
     ax = axes[1]
-    _style_ax(ax, "Radius vs T_eq  (coloured by priority score)", "T_eq [K]", "Radius [R_earth]")
+    _style_ax(ax, r"Radius vs $T_{\mathrm{eq}}$", r"$T_{\mathrm{eq}}$ [K]", r"Radius [$R_\oplus$]")
     sub = df[df["pl_eqt"].notna() & df["pl_rade"].notna() & df["priority_score"].notna()]
     sc  = ax.scatter(sub["pl_eqt"], sub["pl_rade"],
-                     c=sub["priority_score"], cmap="plasma",
-                     s=10, alpha=0.7, vmin=0, vmax=1)
-    plt.colorbar(sc, ax=ax, label="Priority Score").ax.yaxis.label.set_color(TEXT)
-    ax.axvline(288, color=GOLD, lw=1, ls=":", alpha=0.7)
-    ax.axhline(2.0, color=PINK, lw=1, ls=":", alpha=0.7)
+                     c=sub["priority_score"], cmap="cividis",
+                     s=8, alpha=0.65, vmin=0, vmax=1, edgecolors="none")
+    cb = plt.colorbar(sc, ax=ax)
+    cb.set_label("Priority score")
+    ax.axvline(288, color=GOLD, lw=1, ls=":")
+    ax.axhline(2.0, color=PINK, lw=1, ls=":")
     ax.set_xlim(0, 2500); ax.set_ylim(0, 20)
 
-    fig.suptitle("Exoplanet Probabilistic Prioritization — Score Overview",
-                 fontsize=14, color=TEXT, y=1.01)
-    plt.tight_layout()
-    out = PLOTS_DIR / "priority_score_distribution.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "priority_score_distribution.png")
 
 
 def plot_feature_correlations(df, feature_names):
@@ -571,59 +572,43 @@ def plot_feature_correlations(df, feature_names):
     cols = [c for c in cols if c in df.columns]
     corr = df[cols].dropna().corr()
 
-    fig, ax = plt.subplots(figsize=(14, 12))
-    fig.patch.set_facecolor(DARK_BG)
-    ax.set_facecolor(DARK_BG)
+    fig, ax = plt.subplots(figsize=(7.4, 6.4))
     mask = np.triu(np.ones_like(corr, dtype=bool))
-    cmap = sns.diverging_palette(230, 20, as_cmap=True)
-    sns.heatmap(corr, mask=mask, cmap=cmap, center=0, annot=True, fmt=".2f",
-                square=True, linewidths=0.4, ax=ax, annot_kws={"size": 7},
-                cbar_kws={"shrink": 0.7})
-    ax.set_title("Feature Correlation Matrix (vs Priority Score)", color=TEXT, fontsize=13, pad=12)
-    ax.tick_params(colors=MUTED, labelsize=8)
-
-    out = PLOTS_DIR / "feature_correlations.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    sns.heatmap(corr, mask=mask, cmap="RdBu_r", center=0, annot=True, fmt=".2f",
+                square=True, linewidths=0.3, ax=ax, annot_kws={"size": 6},
+                cbar_kws={"shrink": 0.7}, vmin=-1, vmax=1)
+    ax.set_title("Feature correlation (vs priority score)")
+    ax.tick_params(labelsize=7)
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "feature_correlations.png")
 
 
 def plot_observability_analysis(df):
     """Plot observation feasibility landscape."""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    fig.patch.set_facecolor(DARK_BG)
-
+    fig, axes = plt.subplots(1, 3, figsize=(10.8, 3.4))
     for ax in axes:
-        ax.set_facecolor(PANEL)
-        for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
-        ax.tick_params(colors=MUTED)
+        _style_ax(ax)
 
-    # SNR proxy distribution
     axes[0].hist(df["snr_proxy"].clip(0, df["snr_proxy"].quantile(0.99)),
-                 bins=50, color=ACCENT, alpha=0.85, edgecolor=DARK_BG)
-    axes[0].set_title("SNR Proxy Distribution", color=TEXT)
-    axes[0].set_xlabel("SNR Proxy", color=TEXT); axes[0].set_ylabel("Count", color=TEXT)
+                 bins=50, color=ACCENT, alpha=0.85, edgecolor=SPINE, linewidth=0.3)
+    axes[0].set_title("SNR proxy")
+    axes[0].set_xlabel("SNR proxy"); axes[0].set_ylabel("Count")
 
-    # Distance penalty vs priority score
     sc = axes[1].scatter(df["sy_dist"].clip(0, 2000), df["priority_score"],
-                         c=df["detectability"], cmap="viridis", s=8, alpha=0.6)
-    plt.colorbar(sc, ax=axes[1], label="Detectability").ax.yaxis.label.set_color(TEXT)
-    axes[1].set_title("Distance vs Priority Score\n(coloured by detectability)", color=TEXT)
-    axes[1].set_xlabel("Distance [pc]", color=TEXT); axes[1].set_ylabel("Priority Score", color=TEXT)
+                         c=df["detectability"], cmap="cividis", s=6, alpha=0.55, edgecolors="none")
+    plt.colorbar(sc, ax=axes[1], label="Detectability")
+    axes[1].set_title("Distance vs priority")
+    axes[1].set_xlabel("Distance [pc]"); axes[1].set_ylabel("Priority score")
 
-    # Detectability vs priority (the ideal target for observation scheduling)
     sc2 = axes[2].scatter(df["detectability"], df["priority_score"],
-                          c=df["pl_rade"].clip(0, 20), cmap="plasma", s=10, alpha=0.6)
-    plt.colorbar(sc2, ax=axes[2], label="Radius [R_earth]").ax.yaxis.label.set_color(TEXT)
-    axes[2].set_xlabel("Detectability", color=TEXT)
-    axes[2].set_ylabel("Priority Score", color=TEXT)
-    axes[2].set_title("Detectability vs Priority\n(Stage 2 scheduling domain)", color=TEXT)
+                          c=df["pl_rade"].clip(0, 20), cmap="cividis", s=7, alpha=0.55, edgecolors="none")
+    plt.colorbar(sc2, ax=axes[2], label=r"Radius [$R_\oplus$]")
+    axes[2].set_xlabel("Detectability")
+    axes[2].set_ylabel("Priority score")
+    axes[2].set_title("Detectability vs priority")
 
-    plt.tight_layout()
-    out = PLOTS_DIR / "observability_analysis.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-    plt.close(fig)
-    print(f"[Plot]  Saved -> {out}")
+    fig.tight_layout()
+    savefig(fig, PLOTS_DIR / "observability_analysis.png")
 
 
 # =============================================================================

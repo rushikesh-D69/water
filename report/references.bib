@@ -32,7 +32,7 @@
 }
 
 @article{schulze2011,
-  author  = {Schulze-Makuch, Dirk and Mend{\'e}z, Abel and Fair{\'e}n, Alberto G. and von Paris, Philip and Turse, Carol and Boyer, Grayson and Davila, Alfonso F. and de Sousa Antonio, Mar{\'i}a Reyes and Catling, David and Irwin, Louis N.},
+  author  = {Schulze-Makuch, Dirk and M{\'e}ndez, Abel and Fair{\'e}n, Alberto G. and von Paris, Philip and Turse, Carol and Boyer, Grayson and Davila, Alfonso F. and Resendes de Sousa Ant{\'o}nio, Marina and Catling, David and Irwin, Louis N.},
   title   = {A Two-tiered Approach to Assessing the Habitability of Exoplanets},
   journal = {Astrobiology},
   volume  = {11},
@@ -42,19 +42,19 @@
   doi     = {10.1089/ast.2010.0592}
 }
 
-@article{lundberg2017,
-  author  = {Lundberg, Scott M. and Lee, Su-In},
-  title   = {A Unified Approach to Interpreting Model Predictions},
-  journal = {Advances in Neural Information Processing Systems},
-  volume  = {30},
-  year    = {2017},
-  url     = {https://papers.nips.cc/paper/2017/hash/8a20a8621978632d76c43dfd28b67767-Abstract.html}
+@inproceedings{lundberg2017,
+  author    = {Lundberg, Scott M. and Lee, Su-In},
+  title     = {A Unified Approach to Interpreting Model Predictions},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {30},
+  year      = {2017},
+  url       = {https://papers.nips.cc/paper/2017/hash/8a20a8621978632d76c43dfd28b67767-Abstract.html}
 }
 
 @inproceedings{chen2016xgboost,
   author    = {Chen, Tianqi and Guestrin, Carlos},
   title     = {{XGBoost}: A Scalable Tree Boosting System},
-  booktitle = {Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining},
+  booktitle = {Proceedings of the 22nd {ACM} {SIGKDD} International Conference on Knowledge Discovery and Data Mining},
   pages     = {785--794},
   year      = {2016},
   doi       = {10.1145/2939672.2939785}
@@ -71,12 +71,12 @@
   doi     = {10.1023/A:1010933404324}
 }
 
-@article{ke2017lightgbm,
-  author  = {Ke, Guolin and Meng, Qi and Finley, Thomas and Wang, Taifeng and Chen, Wei and Ma, Weidong and Ye, Qiwei and Liu, Tie-Yan},
-  title   = {{LightGBM}: A Highly Efficient Gradient Boosting Decision Tree},
-  journal = {Advances in Neural Information Processing Systems},
-  volume  = {30},
-  year    = {2017}
+@inproceedings{ke2017lightgbm,
+  author    = {Ke, Guolin and Meng, Qi and Finley, Thomas and Wang, Taifeng and Chen, Wei and Ma, Weidong and Ye, Qiwei and Liu, Tie-Yan},
+  title     = {{LightGBM}: A Highly Efficient Gradient Boosting Decision Tree},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {30},
+  year      = {2017}
 }
 
 @article{friedman2001,
@@ -90,12 +90,13 @@
   doi     = {10.1214/aos/1013203451}
 }
 
-@article{nasa_archive,
-  author  = {{NASA Exoplanet Science Institute}},
-  title   = {Planetary Systems Composite Parameters Table},
-  journal = {NASA Exoplanet Archive},
-  year    = {2024},
-  url     = {https://exoplanetarchive.ipac.caltech.edu}
+@misc{nasa_archive,
+  author       = {{NASA Exoplanet Science Institute}},
+  title        = {Planetary Systems Composite Parameters Table (\texttt{pscomppars})},
+  howpublished = {NASA Exoplanet Archive},
+  year         = {2026},
+  note         = {TAP snapshot frozen in this repository on 2026-05-26 (6{,}284 raw records; 5{,}522 after filtering). Archive contents change over time; re-queries will not reproduce the same catalog.},
+  url          = {https://exoplanetarchive.ipac.caltech.edu}
 }
 
 @article{jarque1980,
@@ -105,7 +106,8 @@
   volume  = {6},
   number  = {3},
   pages   = {255--259},
-  year    = {1980}
+  year    = {1980},
+  doi     = {10.1016/0165-1765(80)90024-5}
 }
 
 @article{spearman1904,
@@ -115,7 +117,8 @@
   volume  = {15},
   number  = {1},
   pages   = {72--101},
-  year    = {1904}
+  year    = {1904},
+  doi     = {10.2307/1412159}
 }
 
 @article{kendall1938,
@@ -125,18 +128,19 @@
   volume  = {30},
   number  = {1-2},
   pages   = {81--93},
-  year    = {1938}
+  year    = {1938},
+  doi     = {10.1093/biomet/30.1-2.81}
 }
 
-@inproceedings{jarvelin2002,
-  author    = {J{\"a}rvelin, Kalervo and Kek{\"a}l{\"a}inen, Jaana},
-  title     = {Cumulated Gain-Based Evaluation of {IR} Techniques},
-  booktitle = {ACM Transactions on Information Systems},
-  volume    = {20},
-  number    = {4},
-  pages     = {422--446},
-  year      = {2002},
-  doi       = {10.1145/582415.582418}
+@article{jarvelin2002,
+  author  = {J{\"a}rvelin, Kalervo and Kek{\"a}l{\"a}inen, Jaana},
+  title   = {Cumulated Gain-Based Evaluation of {IR} Techniques},
+  journal = {ACM Transactions on Information Systems},
+  volume  = {20},
+  number  = {4},
+  pages   = {422--446},
+  year    = {2002},
+  doi     = {10.1145/582415.582418}
 }
 
 @article{barclay2018,
@@ -152,7 +156,7 @@
 
 @article{savransky2016,
   author  = {Savransky, Dmitry and Garrett, Daniel},
-  title   = {WFIRST-AFTA Coronagraph Science Survey Simulator},
+  title   = {{WFIRST-AFTA} Coronagraph Science Yield Modeling with {EXOSIMS}},
   journal = {Journal of Astronomical Telescopes, Instruments, and Systems},
   volume  = {2},
   number  = {1},
@@ -163,32 +167,44 @@
 
 @article{ford2008,
   author  = {Ford, Eric B.},
-  title   = {Adaptive Scheduling Algorithms for Planetary Searches},
-  journal = {Astronomical Data Analysis Software and Systems XVII},
-  volume  = {394},
-  pages   = {93},
-  year    = {2008}
+  title   = {Adaptive Scheduling Algorithms for Planet Searches},
+  journal = {The Astronomical Journal},
+  volume  = {135},
+  number  = {3},
+  pages   = {1008--1021},
+  year    = {2008},
+  doi     = {10.1088/0004-6256/135/3/1008}
 }
 
 @article{loredo2004,
   author  = {Loredo, Thomas J.},
   title   = {Bayesian Adaptive Exploration},
   journal = {AIP Conference Proceedings},
-  volume  = {735},
+  volume  = {707},
   number  = {1},
-  pages   = {330--347},
+  pages   = {330--346},
   year    = {2004},
-  doi     = {10.1063/1.1835231}
+  doi     = {10.1063/1.1751377}
 }
 
 @article{batalha2018,
-  author  = {Batalha, Natasha E. and Lewis, Tiffany and Line, Michael R. and Valenti, Jeff and Stevenson, Kevin and Fortney, Jonathan J.},
-  title   = {Information-Theoretic Optimization of Exoplanet Characterization Surveys},
-  journal = {The Astrophysical Journal},
+  author  = {Batalha, Natasha E. and Lewis, Nikole K. and Line, Michael R. and Valenti, Jeff and Stevenson, Kevin},
+  title   = {Strategies for Constraining the Atmospheres of Temperate Terrestrial Planets with {JWST}},
+  journal = {The Astrophysical Journal Letters},
   volume  = {856},
   number  = {2},
-  pages   = {104},
+  pages   = {L34},
   year    = {2018},
-  doi     = {10.3847/1538-4357/aab3e1}
+  doi     = {10.3847/2041-8213/aab896}
 }
 
+@article{lubin2026astroq,
+  author  = {Lubin, Jack and Petigura, Erik A. and Mi{\v{s}}i{\'c}, Velibor V. and Van Zandt, Judah and Handley, Luke B.},
+  title   = {{AstroQ}: Automated Scheduling of Cadenced Astronomical Observations},
+  journal = {The Astronomical Journal},
+  volume  = {171},
+  number  = {2},
+  pages   = {85},
+  year    = {2026},
+  doi     = {10.3847/1538-3881/ae2a2e}
+}

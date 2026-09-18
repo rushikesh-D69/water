@@ -407,16 +407,16 @@ class AdaptiveScheduler(BaseScheduler):
         return selected, sel_costs
 
 
-# ── Oracle Scheduler — perfect future knowledge upper bound ──────────────────
+# ── Oracle Scheduler — perfect-knowledge reference (same utility) ──────────
 class OracleScheduler(AdaptiveScheduler):
     """
-    Oracle Scheduler: selects the globally optimal set every round.
+    Perfect-knowledge reference: same Adaptive utility, constraints, and
+    greedy selection, but substitutes true priority P_i for predicted mu.
 
-    Inherits from AdaptiveScheduler to share the dynamic weight scheduler,
-    but overrides `_compute_gain` to use `true_priorities` (perfect future knowledge)
-    instead of the noisy/estimated `mu` scores.
-
-    Used as a true upper bound for regret and normalization.
+    Not a universal upper bound on raw cumulative gain: detectability-greedy
+    and even Adaptive can exceed Oracle gain because the Oracle does not
+    maximize that scalar.
+    """
     """
 
     def __init__(

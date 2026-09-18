@@ -16,18 +16,22 @@ from src.scheduler import (
 )
 from src.evaluation import *              # noqa: F401,F403
 
-# Stage 3 RL modules (requires: gymnasium, stable-baselines3, sb3-contrib)
-from src.rl_environment import ExoplanetSchedulingEnv, make_shortlist
-from src.rl_agent import (
-    collect_bc_trajectories, pretrain_bc,
-    train_ppo_curriculum, evaluate_policy_campaigns,
-    evaluate_generalization, explain_policy_decision,
-    LinUCBBandit, RLScheduler,
-)
-from src.rl_evaluation import (
-    plot_training_reward_curve, plot_policy_heatmap,
-    plot_reward_decomposition, plot_exploration_exploitation_timeline,
-    plot_extended_pareto, plot_generalization, plot_state_tsne,
-    print_policy_explanation, build_stage3_comparison_table,
-    save_stage3_comparison,
-)
+# Stage 3 is optional. Stage 1 / Stage 2 notebooks must import this package
+# without gymnasium, stable-baselines3, or sb3-contrib installed.
+try:
+    from src.rl_environment import ExoplanetSchedulingEnv, make_shortlist
+    from src.rl_agent import (
+        collect_bc_trajectories, pretrain_bc,
+        train_ppo_curriculum, evaluate_policy_campaigns,
+        evaluate_generalization, explain_policy_decision,
+        LinUCBBandit, RLScheduler,
+    )
+    from src.rl_evaluation import (
+        plot_training_reward_curve, plot_policy_heatmap,
+        plot_reward_decomposition, plot_exploration_exploitation_timeline,
+        plot_extended_pareto, plot_generalization, plot_state_tsne,
+        print_policy_explanation, build_stage3_comparison_table,
+        save_stage3_comparison,
+    )
+except ImportError:
+    pass
